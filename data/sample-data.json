@@ -1,0 +1,93 @@
+{
+  "platformAdmins": [
+    {
+      "id": "REPLACE_WITH_YOUR_FIREBASE_AUTH_UID",
+      "name": "NextGen Udaan Owner",
+      "email": "owner@nextgenudaan.in",
+      "status": "active"
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "sub_demo_enterprise",
+      "subscriptionId": "sub_demo_enterprise",
+      "razorpayCustomerId": "cust_demo_001",
+      "razorpaySubscriptionId": "rzp_sub_demo_001",
+      "customerName": "Udaan Talent Partners",
+      "customerEmail": "owner@udaan-talent.example",
+      "billingEmail": "billing@udaan-talent.example",
+      "plan": "enterprise",
+      "priceMonthly": 8999,
+      "maxUsers": 10,
+      "status": "active",
+      "currentPeriodStart": "2026-05-01T00:00:00.000Z",
+      "currentPeriodEnd": "2026-06-01T00:00:00.000Z",
+      "gracePeriodDays": 7,
+      "cancelAtPeriodEnd": false,
+      "lastPaymentStatus": "captured",
+      "companyId": "co_udaan_talent"
+    }
+  ],
+  "companies": [
+    {
+      "id": "co_udaan_talent",
+      "companyId": "co_udaan_talent",
+      "companyName": "Udaan Talent Partners",
+      "ownerId": "REPLACE_WITH_FIREBASE_AUTH_UID",
+      "subscriptionId": "sub_demo_enterprise",
+      "plan": "enterprise",
+      "maxUsers": 10,
+      "status": "active",
+      "features": [
+        "recruitModule",
+        "shareProfile",
+        "dialer",
+        "qrBridgeLogin",
+        "advancedAnalytics"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "REPLACE_WITH_FIREBASE_AUTH_UID",
+      "userId": "REPLACE_WITH_FIREBASE_AUTH_UID",
+      "companyId": "co_udaan_talent",
+      "name": "Workspace Owner",
+      "email": "owner@udaan-talent.example",
+      "role": "owner",
+      "status": "active",
+      "inviteStatus": "accepted"
+    },
+    {
+      "id": "usr_demo_recruiter",
+      "userId": "usr_demo_recruiter",
+      "companyId": "co_udaan_talent",
+      "name": "Recruiter Demo",
+      "email": "recruiter@udaan-talent.example",
+      "role": "recruiter",
+      "status": "invited",
+      "inviteStatus": "pending"
+    }
+  ],
+  "permissions": [
+    { "id": "manage_users", "key": "manage_users", "module": "access", "description": "Create, invite, disable, and update users." },
+    { "id": "manage_jobs", "key": "manage_jobs", "module": "recruit", "description": "Create and manage jobs." },
+    { "id": "manage_candidates", "key": "manage_candidates", "module": "recruit", "description": "Create and manage candidates." },
+    { "id": "use_dialer", "key": "use_dialer", "module": "dialer", "description": "Use calling workflows." },
+    { "id": "share_profiles", "key": "share_profiles", "module": "shareProfile", "description": "Share candidate profiles." },
+    { "id": "read_only", "key": "read_only", "module": "all", "description": "Read-only access." }
+  ],
+  "activityLogs": [
+    {
+      "id": "log_demo_created",
+      "companyId": "co_udaan_talent",
+      "actorId": "system",
+      "action": "company.provisioned",
+      "entityType": "company",
+      "entityId": "co_udaan_talent",
+      "metadata": {
+        "source": "sample-data"
+      }
+    }
+  ]
+}
