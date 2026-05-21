@@ -6,7 +6,8 @@ import {
 import { auth } from "./firebase.js";
 import { getRecord, setRecord } from "./firestoreService.js";
 
-const OWNER_EMAIL = "nextgenudaan@gmail.com";
+const OWNER_EMAILS = ["nextgenudaan@gmail.com", "it.nextgenudaan@gmail.com"];
+const OWNER_EMAIL_LABEL = OWNER_EMAILS.join(" or ");
 
 export function watchAuth(callback) {
     return onAuthStateChanged(auth, callback);
@@ -47,11 +48,11 @@ export async function loadAccessSession(firebaseUser) {
         };
     }
 
-    if (email === OWNER_EMAIL) {
+    if (OWNER_EMAILS.includes(email)) {
         try {
             await setRecord("platformAdmins", firebaseUser.uid, {
-                name: "NextGen Udaan Owner",
-                email: OWNER_EMAIL,
+                name: email === "it.nextgenudaan@gmail.com" ? "NextGen Udaan IT Admin" : "NextGen Udaan Owner",
+                email,
                 role: "owner",
                 status: "active",
                 bootstrappedBy: "owner_email"
@@ -66,7 +67,7 @@ export async function loadAccessSession(firebaseUser) {
                 blocked: true,
                 ownerOnly: true,
                 ownerBootstrapMissing: true,
-                blockedReason: `Owner profile is not initialized. Create /platformAdmins/${firebaseUser.uid} with email "${OWNER_EMAIL}", role "owner", and status "active".`
+                blockedReason: `Owner profile is not initialized. Create /platformAdmins/${firebaseUser.uid} with email "${email}", role "owner", and status "active".`
             };
         }
     }
@@ -78,7 +79,7 @@ export async function loadAccessSession(firebaseUser) {
         subscription: null,
         blocked: true,
         ownerOnly: true,
-        blockedReason: `This private control panel is restricted to ${OWNER_EMAIL}.`
+        blockedReason: `This private control panel is restricted to ${OWNER_EMAIL_LABEL}.`
     };
 
 }
