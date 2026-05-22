@@ -37,21 +37,24 @@ export const PLAN_CATALOG = {
         name: "Starter",
         priceMonthly: 1499,
         maxUsers: 1,
-        features: ["recruitModule", "shareProfile"]
+        features: Object.keys(FEATURES),
+        customDomain: false
     },
     professional: {
         id: "professional",
         name: "Professional",
         priceMonthly: 2999,
         maxUsers: 3,
-        features: ["recruitModule", "shareProfile", "dialer"]
+        features: Object.keys(FEATURES),
+        customDomain: false
     },
     enterprise: {
         id: "enterprise",
         name: "Enterprise",
         priceMonthly: 8999,
-        maxUsers: 10,
-        features: ["recruitModule", "shareProfile", "dialer", "qrBridgeLogin", "advancedAnalytics"]
+        maxUsers: 8,
+        features: Object.keys(FEATURES),
+        customDomain: true
     },
     custom: {
         id: "custom",
@@ -59,7 +62,8 @@ export const PLAN_CATALOG = {
         priceMonthly: null,
         maxUsers: null,
         features: Object.keys(FEATURES),
-        configurable: true
+        configurable: true,
+        customDomain: true
     }
 };
 

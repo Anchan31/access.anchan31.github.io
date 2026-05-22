@@ -13,38 +13,21 @@ export const PERMISSIONS = {
 };
 
 export const ROLE_DEFINITIONS = {
-    owner: {
-        id: "owner",
-        label: "Owner",
-        permissions: Object.values(PERMISSIONS)
-    },
     admin: {
         id: "admin",
         label: "Admin",
         permissions: [
             PERMISSIONS.manageUsers,
-            PERMISSIONS.manageRoles,
-            PERMISSIONS.manageJobs,
-            PERMISSIONS.manageCandidates,
-            PERMISSIONS.shareProfiles,
             PERMISSIONS.readOnly,
-            PERMISSIONS.viewAnalytics
+            PERMISSIONS.viewAnalytics,
+            PERMISSIONS.shareProfiles,
+            PERMISSIONS.useDialer
         ]
     },
     recruiter: {
         id: "recruiter",
         label: "Recruiter",
-        permissions: [
-            PERMISSIONS.manageCandidates,
-            PERMISSIONS.useDialer,
-            PERMISSIONS.shareProfiles,
-            PERMISSIONS.readOnly
-        ]
-    },
-    viewer: {
-        id: "viewer",
-        label: "Viewer",
-        permissions: [PERMISSIONS.readOnly]
+        permissions: Object.values(PERMISSIONS)
     }
 };
 
@@ -57,6 +40,6 @@ export const MODULE_REQUIREMENTS = {
     advancedAnalytics: [PERMISSIONS.viewAnalytics]
 };
 
-export function getRole(roleId = "viewer") {
-    return ROLE_DEFINITIONS[roleId] || ROLE_DEFINITIONS.viewer;
+export function getRole(roleId = "admin") {
+    return ROLE_DEFINITIONS[roleId] || ROLE_DEFINITIONS.admin;
 }

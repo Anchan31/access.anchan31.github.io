@@ -49,18 +49,6 @@ const views = {
         label: "Subscriptions",
         title: "Manual Subscription Control",
         subtitle: "You control plan status, upgrades, downgrades, cancellations, trial, grace, and suspension."
-    },
-    modules: {
-        icon: "fa-diagram-project",
-        label: "RMS Modules",
-        title: "RMS Module Access",
-        subtitle: "Feature access depends on both plan entitlement and role permissions."
-    },
-    architecture: {
-        icon: "fa-database",
-        label: "Architecture",
-        title: "Production Architecture",
-        subtitle: "Firestore schema, isolation model, access flow, and deployment notes."
     }
 };
 
@@ -284,8 +272,6 @@ function renderView() {
         case "users": return renderUsers();
         case "roles": return renderRoles();
         case "subscriptions": return renderSubscriptions();
-        case "modules": return renderModules();
-        case "architecture": return renderArchitecture();
         default: return renderOverview();
     }
 }
@@ -1011,6 +997,145 @@ async function handleSubscriptionAction(button) {
     toast(`Subscription ${action} saved.`);
 }
 
+function openModal(title, contentText, isReadOnly, onSave) {
+    const existing = document.getElementById("custom-modal");
+    if (existing) existing.remove();
+
+    let data = {};
+    try {
+        data = JSON.parse(contentText);
+    } catch (e) {
+        data = { content: contentText };
+    }
+
+    const generateFormFields = (obj, prefix = "") => {
+        let html = "";
+        for (const [key, value] of Object.entries(obj)) {
+            const fieldId = `field-${prefix}${key}`;
+            const fieldLabel = key.replace(/([A-Z])/g, " $1").trim();
+            
+            if (value === null) {
+                html += `
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-400 mb-2">${escapeHtml(fieldLabel)}</label>
+                        <input type="text" id="${fieldId}" value="null" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-sm focus:border-blue-500 outline-none transition-colors" />
+                    </div>
+                `;
+            } else if (typeof value === "boolean") {
+                html += `
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-400 mb-2">${escapeHtml(fieldLabel)}</label>
+                        <select id="${fieldId}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-sm focus:border-blue-500 outline-none transition-colors">
+                            <option value="true" ${value === true ? "selected" : ""}>True</option>
+                            <option value="false" ${value === false ? "selected" : ""}>False</option>
+                        </select>
+                    </div>
+                `;
+            } else if (typeof value === "number") {
+                html += `
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-400 mb-2">${escapeHtml(fieldLabel)}</label>
+                        <input type="number" id="${fieldId}" value="${value}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-sm focus:border-blue-500 outline-none transition-colors" />
+                    </div>
+                `;
+            } else if (Array.isArray(value)) {
+                html += `
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-400 mb-2">${escapeHtml(fieldLabel)}</label>
+                        <textarea id="${fieldId}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-xs font-mono focus:border-blue-500 outline-none transition-colors resize-none h-20">${JSON.stringify(value, null, 2)}</textarea>
+                    </div>
+                `;
+            } else if (typeof value === "object" && value !== null) {
+                html += `
+                    <div class="mb-4 p-3 bg-white/5 border border-white/10 rounded-lg">
+                        <label class="block text-xs font-bold text-slate-300 mb-3">${escapeHtml(fieldLabel)}</label>
+                        <div class="ml-2">
+                            ${generateFormFields(value, `${prefix}${key}-`)}
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-400 mb-2">${escapeHtml(fieldLabel)}</label>
+                        <input type="text" id="${fieldId}" value="${escapeHtml(String(value))}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-sm focus:border-blue-500 outline-none transition-colors" />
+                    </div>
+                `;
+            }
+        }
+        return html;
+    };
+
+    const modal = document.createElement("div");
+    modal.id = "custom-modal";
+    modal.className = "fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 animate-fade-in";
+    modal.innerHTML = `
+        <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                <h3 class="text-lg font-bold text-white">${escapeHtml(title)}</h3>
+                <button id="modal-close" class="text-slate-400 hover:text-white transition-colors"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-6 overflow-y-auto flex-1">
+                <form id="modal-form" class="space-y-1">
+                    ${generateFormFields(data)}
+                </form>
+            </div>
+            <div class="p-6 border-t border-white/5 bg-black/20 flex justify-end gap-3">
+                <button id="modal-cancel" class="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-sm font-bold transition-all">Close</button>
+                ${isReadOnly ? "" : `<button id="modal-save" type="button" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shadow-lg shadow-blue-500/20 transition-all">Save Changes</button>`}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    document.getElementById("modal-close").addEventListener("click", close);
+    document.getElementById("modal-cancel").addEventListener("click", close);
+    
+    if (!isReadOnly) {
+        document.getElementById("modal-save").addEventListener("click", () => {
+            const formData = {};
+            const form = document.getElementById("modal-form");
+            const inputs = form.querySelectorAll("input, select, textarea");
+            
+            inputs.forEach((input) => {
+                const fieldId = input.id;
+                if (!fieldId) return;
+                
+                const path = fieldId.replace("field-", "").split("-");
+                let current = formData;
+                
+                for (let i = 0; i < path.length - 1; i++) {
+                    if (!current[path[i]]) current[path[i]] = {};
+                    current = current[path[i]];
+                }
+                
+                const key = path[path.length - 1];
+                let value = input.value;
+                
+                if (input.tagName === "SELECT") {
+                    value = value === "true" ? true : value === "false" ? false : value;
+                } else if (input.type === "number") {
+                    value = isNaN(Number(value)) ? value : Number(value);
+                } else if (input.tagName === "TEXTAREA" && input.value.trim().startsWith("[")) {
+                    try {
+                        value = JSON.parse(input.value);
+                    } catch (e) {
+                        value = input.value;
+                    }
+                }
+                
+                current[key] = value;
+            });
+            
+            const result = Object.keys(formData).length === 0 ? contentText : JSON.stringify(formData, null, 2);
+            onSave(result);
+            close();
+        });
+    }
+}
+
 async function handleRecordAction(button) {
     const action = button.dataset.recordAction;
     const collectionName = button.dataset.collection;
@@ -1023,7 +1148,7 @@ async function handleRecordAction(button) {
     }
 
     if (action === "view") {
-        alert(`${collectionName}/${id}\n\n${JSON.stringify(record, null, 2)}`);
+        openModal(`View ${collectionName}/${id}`, JSON.stringify(record, null, 2), true);
         return;
     }
 
@@ -1033,22 +1158,24 @@ async function handleRecordAction(button) {
         delete editableRecord.createdAt;
         delete editableRecord.updatedAt;
 
-        const input = prompt(
-            `Edit ${collectionName}/${id}\nUpdate the JSON fields below, then press OK.`,
-            JSON.stringify(editableRecord, null, 2)
+        openModal(
+            `Edit ${collectionName}/${id}`,
+            JSON.stringify(editableRecord, null, 2),
+            false,
+            async (input) => {
+                if (!input) return;
+                try {
+                    const payload = JSON.parse(input);
+                    await updateRecord(collectionName, id, payload);
+                    await logRecordAction(collectionName, id, "updated");
+                    await loadData();
+                    renderShell();
+                    toast("Record updated.");
+                } catch (error) {
+                    toast(`Edit failed: ${error.message}`, true);
+                }
+            }
         );
-        if (!input) return;
-
-        try {
-            const payload = JSON.parse(input);
-            await updateRecord(collectionName, id, payload);
-            await logRecordAction(collectionName, id, "updated");
-            await loadData();
-            renderShell();
-            toast("Record updated.");
-        } catch (error) {
-            toast(`Edit failed: ${error.message}`, true);
-        }
         return;
     }
 
