@@ -3,10 +3,13 @@ import { createRecord, updateRecord } from "./firestoreService.js";
 
 export async function createSubscription(input) {
     const plan = PLAN_CATALOG[input.plan] || PLAN_CATALOG.starter;
-    const customLimits = input.plan === "custom" ? {
-        maxUsers: Number(input.maxUsers || 1),
-        priceMonthly: Number(input.priceMonthly || 0)
-    } : {};
+    const customLimits =
+        input.plan === "custom"
+            ? {
+                  maxUsers: Number(input.maxUsers || 1),
+                  priceMonthly: Number(input.priceMonthly || 0)
+              }
+            : {};
 
     const limits = resolvePlanLimits({
         plan: plan.id,

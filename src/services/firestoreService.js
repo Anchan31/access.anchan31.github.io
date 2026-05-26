@@ -61,11 +61,15 @@ export async function createRecord(path, payload) {
 }
 
 export async function setRecord(path, id, payload) {
-    await setDoc(doc(db, path, id), {
-        ...payload,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-    }, { merge: true });
+    await setDoc(
+        doc(db, path, id),
+        {
+            ...payload,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        },
+        { merge: true }
+    );
     return id;
 }
 
@@ -120,11 +124,15 @@ export async function writeSeed(recordsByCollection) {
         records.forEach((record) => {
             const id = record.id || record[`${collectionName.slice(0, -1)}Id`];
             const ref = id ? doc(db, collectionName, id) : doc(collection(db, collectionName));
-            batch.set(ref, {
-                ...record,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp()
-            }, { merge: true });
+            batch.set(
+                ref,
+                {
+                    ...record,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                },
+                { merge: true }
+            );
         });
     });
     await batch.commit();

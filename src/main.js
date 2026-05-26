@@ -1,15 +1,26 @@
 import { PLAN_CATALOG, FEATURES, resolvePlanLimits } from "./config/plans.js";
 import { PERMISSIONS, ROLE_DEFINITIONS } from "./config/rbac.js";
-import { canAccessModule, canAddUser, getBlockedReason, hasFeature, hasPermission } from "./services/accessControlService.js";
+import {
+    canAccessModule,
+    canAddUser,
+    getBlockedReason,
+    hasFeature,
+    hasPermission
+} from "./services/accessControlService.js";
 import { watchAuth, login, logout, loadAccessSession } from "./services/authService.js";
 import { createCompanyWorkspace, getCompanyUsers, inviteUser, assignRole } from "./services/companyService.js";
 import { createRecord, listCollection, getRecord, updateRecord, deleteRecord } from "./services/firestoreService.js";
-import { createSubscription, upgradePlan, scheduleDowngrade, cancelSubscription } from "./services/subscriptionService.js";
-import { logActivity } from "./services/activityLogService.js";
+import {
+    createSubscription,
+    upgradePlan,
+    scheduleDowngrade,
+    cancelSubscription
+} from "./services/subscriptionService.js";
 import { escapeHtml, formatDate, formatDateTime, inr, initials, percent } from "./utils/format.js";
 import { toast } from "./utils/toast.js";
 import { secondaryAuth } from "./services/firebase.js";
 import { createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { openModal } from "./components/modal.js";
 
 const app = document.getElementById("app");
 
@@ -24,7 +35,8 @@ const views = {
         icon: "fa-inbox",
         label: "Purchase Requests",
         title: "Payment Requests",
-        subtitle: "Confirm paid Razorpay subscriptions, then create the subscription, company, owner user, and access pass."
+        subtitle:
+            "Confirm paid Razorpay subscriptions, then create the subscription, company, owner user, and access pass."
     },
     companies: {
         icon: "fa-building-shield",
@@ -49,6 +61,12 @@ const views = {
         label: "Subscriptions",
         title: "Manual Subscription Control",
         subtitle: "You control plan status, upgrades, downgrades, cancellations, trial, grace, and suspension."
+    },
+    emails: {
+        icon: "fa-envelope",
+        label: "Email Management",
+        title: "Email Management",
+        subtitle: "Manage shared email credentials and assigned mailboxes for your access portal."
     }
 };
 
@@ -62,7 +80,8 @@ let state = {
     users: [],
     roles: [],
     permissions: [],
-    logs: []
+    emails: [],
+    emailSearch: ""
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -82,39 +101,41 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function loadData() {
-    const [subscriptions, accessPasses, companies, users, roles, permissions, logs] = await Promise.all([
+    const [subscriptions, accessPasses, companies, users, roles, permissions, emails] = await Promise.all([
         safeList("subscriptions"),
         safeList("accessPasses"),
         safeList("companies"),
         safeList("users"),
         safeList("roles"),
         safeList("permissions"),
-        safeList("activityLogs")
+        safeList("emails")
     ]);
 
     // Map unprovisioned subscriptions to state.purchaseRequests so we don't have to rewrite the HTML rendering code or views!
-    const purchaseRequests = subscriptions.filter(sub => !sub.companyId).map(sub => {
-        let mappedPlan = "starter";
-        if (sub.plan_id === "plan_SoAKfnYYCTZHDo") mappedPlan = "professional";
-        if (sub.plan_id === "plan_SouJvWzj8xFSgg") mappedPlan = "enterprise";
-        if (sub.plan) mappedPlan = sub.plan; // fallback if already standard
+    const purchaseRequests = subscriptions
+        .filter((sub) => !sub.companyId)
+        .map((sub) => {
+            let mappedPlan = "starter";
+            if (sub.plan_id === "plan_SoAKfnYYCTZHDo") mappedPlan = "professional";
+            if (sub.plan_id === "plan_SouJvWzj8xFSgg") mappedPlan = "enterprise";
+            if (sub.plan) mappedPlan = sub.plan; // fallback if already standard
 
-        return {
-            id: sub.id,
-            buyerName: sub.name || "Unknown Buyer",
-            buyerEmail: sub.email || "no-email@test.com",
-            companyName: sub.company || `${sub.name || "Customer"} Workspace`,
-            mobile: sub.mobile || "",
-            plan: mappedPlan,
-            planName: sub.plan_name || planName(mappedPlan),
-            status: sub.status || "active",
-            provisioningStatus: sub.companyId ? "completed" : "pending",
-            createdAt: sub.created_at || new Date().toISOString(),
-            updatedAt: sub.created_at || new Date().toISOString(),
-            razorpaySubscriptionId: sub.subscription_id || sub.id,
-            razorpayPlanId: sub.plan_id || ""
-        };
-    });
+            return {
+                id: sub.id,
+                buyerName: sub.name || "Unknown Buyer",
+                buyerEmail: sub.email || "no-email@test.com",
+                companyName: sub.company || `${sub.name || "Customer"} Workspace`,
+                mobile: sub.mobile || "",
+                plan: mappedPlan,
+                planName: sub.plan_name || planName(mappedPlan),
+                status: sub.status || "active",
+                provisioningStatus: sub.companyId ? "completed" : "pending",
+                createdAt: sub.created_at || new Date().toISOString(),
+                updatedAt: sub.created_at || new Date().toISOString(),
+                razorpaySubscriptionId: sub.subscription_id || sub.id,
+                razorpayPlanId: sub.plan_id || ""
+            };
+        });
 
     state = {
         ...state,
@@ -125,7 +146,7 @@ async function loadData() {
         users,
         roles,
         permissions,
-        logs
+        emails
     };
 }
 
@@ -155,54 +176,58 @@ function renderShell() {
     const current = views[state.view];
     app.className = "";
     app.innerHTML = `
-        <div class="app-shell">
-            <aside class="sidebar">
-                <div class="brand">
-                    <div class="logo-mark"><i class="fas fa-shield-halved"></i></div>
+        <div class="grid grid-cols-1 md:grid-cols-[280px_1fr] min-h-screen bg-transparent">
+            <aside class="sticky top-0 h-screen flex flex-col gap-6 p-6 bg-white/60 backdrop-blur-xl border-r border-slate-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-pink-500 rounded-xl flex items-center justify-center text-slate-900 text-lg shadow-md"><i class="fas fa-shield-halved"></i></div>
                     <div>
-                        <span class="brand-title">NextGen Udaan</span>
-                        <span class="brand-subtitle">Control Center</span>
+                        <span class="block text-[17px] font-black text-slate-900">NextGen Udaan</span>
+                        <span class="text-xs text-slate-500 font-medium">Control Center</span>
                     </div>
                 </div>
-                <nav class="nav">
-                    ${Object.entries(views).map(([key, view]) => `
-                        <button class="nav-button ${key === state.view ? "active" : ""}" data-view="${key}">
+                <nav class="grid gap-2">
+                    ${Object.entries(views)
+                        .map(
+                            ([key, view]) => `
+                        <button class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${key === state.view ? "text-blue-600 bg-blue-50 shadow-sm shadow-blue-100" : "text-slate-500 hover:text-slate-900 hover:bg-white"}" data-view="${key}">
                             <i class="fas ${view.icon}"></i>
                             <span>${view.label}</span>
                         </button>
-                    `).join("")}
+                    `
+                        )
+                        .join("")}
                 </nav>
-                <div class="tenant-card">
+                <div class="mt-auto p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
                     <div class="flex items-center gap-3 mb-3">
-                        <div class="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center text-blue-400">
+                        <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
                             <i class="fas fa-user-shield"></i>
                         </div>
                         <div class="flex-1 overflow-hidden">
-                            <strong class="truncate">${escapeHtml(state.session.company?.companyName || "Platform Admin")}</strong>
-                            <span class="truncate">${state.session.adminMode ? "Super Admin" : escapeHtml(state.session.user?.role || "Admin")}</span>
+                            <strong class="block text-sm text-slate-800 truncate">${escapeHtml(state.session.company?.companyName || "Platform Admin")}</strong>
+                            <span class="block text-xs text-slate-500 mt-0.5 truncate">${state.session.adminMode ? "Super Admin" : escapeHtml(state.session.user?.role || "Admin")}</span>
                         </div>
                     </div>
-                    <button class="btn w-full !bg-red-500/10 !text-red-400 !border-red-500/20 hover:!bg-red-500/20 transition-all" id="logoutButton" type="button">
+                    <button class="w-full flex items-center justify-center gap-2 px-4 py-2 font-bold rounded-lg text-red-600 bg-red-50 hover:bg-red-100 transition-all" id="logoutButton" type="button">
                         <i class="fas fa-power-off"></i> Sign Out
                     </button>
                 </div>
             </aside>
-            <main class="content">
-                <header class="topbar glass-card">
+            <main class="min-w-0 p-6 md:p-8">
+                <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-white/60 backdrop-blur-md p-6 rounded-2xl border border-slate-200 shadow-sm">
                     <div class="flex flex-col">
-                        <h1 class="text-2xl font-bold tracking-tight">${current.title}</h1>
-                        <p class="text-xs text-slate-500 font-medium">${current.subtitle}</p>
+                        <h1 class="text-3xl font-black text-slate-900 mb-1">${current.title}</h1>
+                        <p class="text-sm text-slate-500 font-medium">${current.subtitle}</p>
                     </div>
-                    <div class="actions">
-                        <button class="btn hover-lift" id="refreshButton" type="button">
+                    <div class="flex gap-3">
+                        <button class="inline-flex items-center justify-center gap-2 px-4 py-2.5 font-bold rounded-xl bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-sm transition-all" id="refreshButton" type="button">
                             <i class="fas fa-rotate"></i> Sync
                         </button>
-                        <button class="btn btn-primary shimmer" id="primaryAction" type="button">
+                        <button class="inline-flex items-center justify-center gap-2 px-5 py-2.5 font-bold rounded-xl bg-gradient-to-r from-blue-600 to-pink-500 text-slate-900 hover:scale-[1.02] hover:shadow-lg hover:shadow-pink-500/25 transition-all" id="primaryAction" type="button">
                             <i class="fas fa-plus"></i> ${primaryActionLabel()}
                         </button>
                     </div>
                 </header>
-                <section id="viewRoot" class="fade-in">${renderView()}</section>
+                <section id="viewRoot" class="animate-fade-in">${renderView()}</section>
             </main>
         </div>
     `;
@@ -211,24 +236,26 @@ function renderShell() {
 }
 
 function renderLogin(error = "") {
-    app.className = "shell-loading";
+    app.className = "min-h-screen flex items-center justify-center p-6";
     app.innerHTML = `
-        <form class="boot-card form" id="loginForm">
-            <div class="brand-mark"><i class="fas fa-shield-halved"></i></div>
-            <div>
-                <h1>NextGen Udaan Access</h1>
-                <p class="muted">Private owner login. Customers should not use this panel.</p>
+        <form class="bg-white/80 backdrop-blur-xl border border-slate-200 p-8 md:p-10 rounded-3xl shadow-2xl shadow-blue-900/10 max-w-sm w-full grid gap-6 animate-slide-up" id="loginForm">
+            <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-pink-500 rounded-2xl flex items-center justify-center text-slate-900 text-2xl mx-auto shadow-lg shadow-pink-500/20">
+                <i class="fas fa-shield-halved"></i>
             </div>
-            ${error ? `<p class="badge badge-danger">${escapeHtml(error)}</p>` : ""}
-            <div class="field">
-                <label for="loginEmail">Email</label>
-                <input id="loginEmail" type="email" autocomplete="email" required>
+            <div class="text-center">
+                <h1 class="text-2xl font-black text-slate-900 mb-2">NextGen Access</h1>
+                <p class="text-sm font-medium text-slate-500">Private owner login portal.</p>
             </div>
-            <div class="field">
-                <label for="loginPassword">Password</label>
-                <input id="loginPassword" type="password" autocomplete="current-password" required>
+            ${error ? `<div class="px-3 py-2 rounded-lg bg-red-50 text-red-600 text-sm font-bold border border-red-100 text-center">${escapeHtml(error)}</div>` : ""}
+            <div class="grid gap-1.5">
+                <label for="loginEmail" class="text-sm font-bold text-slate-700">Email</label>
+                <input id="loginEmail" type="email" autocomplete="email" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
             </div>
-            <button class="btn btn-primary" type="submit"><i class="fas fa-lock"></i> Sign In</button>
+            <div class="grid gap-1.5">
+                <label for="loginPassword" class="text-sm font-bold text-slate-700">Password</label>
+                <input id="loginPassword" type="password" autocomplete="current-password" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+            <button class="w-full inline-flex items-center justify-center gap-2 px-5 py-3 font-bold rounded-xl bg-gradient-to-r from-blue-600 to-pink-500 text-slate-900 hover:scale-[1.02] hover:shadow-lg hover:shadow-pink-500/25 transition-all mt-2" type="submit"><i class="fas fa-lock"></i> Sign In</button>
         </form>
     `;
     document.getElementById("loginForm").addEventListener("submit", async (event) => {
@@ -245,16 +272,16 @@ function renderLogin(error = "") {
 }
 
 function renderExpired() {
-    app.className = "expired";
+    app.className = "min-h-screen flex items-center justify-center p-6";
     app.innerHTML = `
-        <div class="panel">
-            <p class="eyebrow">${state.session.ownerOnly ? "Owner access required" : "Subscription required"}</p>
-            <h1>${state.session.ownerOnly ? "This account is not an admin" : "Access is paused"}</h1>
-            <p class="muted">${escapeHtml(state.session.blockedReason || "Subscription inactive. Contact NextGen Udaan to restore access.")}</p>
-            ${state.session.ownerOnly ? `<p class="muted">Create that Firestore document once, then refresh and sign in again.</p>` : ""}
-            <div class="actions">
-                <button class="btn btn-primary" id="billingRetry"><i class="fas fa-copy"></i> Copy UID</button>
-                <button class="btn" id="logoutButton"><i class="fas fa-arrow-right-from-bracket"></i> Logout</button>
+        <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-8 shadow-2xl shadow-slate-200 max-w-md w-full text-center">
+            <p class="text-xs font-black tracking-widest uppercase text-pink-500 mb-2">${state.session.ownerOnly ? "Owner access required" : "Subscription required"}</p>
+            <h1 class="text-2xl font-black text-slate-900 mb-4">${state.session.ownerOnly ? "This account is not an admin" : "Access is paused"}</h1>
+            <p class="text-slate-500 text-sm mb-6">${escapeHtml(state.session.blockedReason || "Subscription inactive. Contact NextGen Udaan to restore access.")}</p>
+            ${state.session.ownerOnly ? `<p class="text-slate-500 text-sm mb-6">Create that Firestore document once, then refresh and sign in again.</p>` : ""}
+            <div class="flex justify-center gap-3 flex-wrap">
+                <button class="inline-flex items-center justify-center gap-2 px-4 py-2 font-bold rounded-xl bg-gradient-to-r from-blue-600 to-pink-500 text-slate-900 hover:scale-[1.02] transition-all" id="billingRetry"><i class="fas fa-copy"></i> Copy UID</button>
+                <button class="inline-flex items-center justify-center gap-2 px-4 py-2 font-bold rounded-xl bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 shadow-sm transition-all" id="logoutButton"><i class="fas fa-arrow-right-from-bracket"></i> Logout</button>
             </div>
         </div>
     `;
@@ -267,70 +294,69 @@ function renderExpired() {
 
 function renderView() {
     switch (state.view) {
-        case "requests": return renderPurchaseRequests();
-        case "companies": return renderCompanies();
-        case "users": return renderUsers();
-        case "roles": return renderRoles();
-        case "subscriptions": return renderSubscriptions();
-        default: return renderOverview();
+        case "requests":
+            return renderPurchaseRequests();
+        case "companies":
+            return renderCompanies();
+        case "users":
+            return renderUsers();
+        case "roles":
+            return renderRoles();
+        case "subscriptions":
+            return renderSubscriptions();
+        case "emails":
+            return renderEmails();
+        default:
+            return renderOverview();
     }
 }
 
 function renderOverview() {
     const paidRequests = state.purchaseRequests.filter((request) => request.status === "payment_received").length;
-    const pendingProvisioning = state.purchaseRequests.filter((request) => request.provisioningStatus !== "completed").length;
-    const activeSubscriptions = state.subscriptions.filter((sub) => ["active", "trialing", "grace"].includes(sub.status)).length;
+    const pendingProvisioning = state.purchaseRequests.filter(
+        (request) => request.provisioningStatus !== "completed"
+    ).length;
+    const activeSubscriptions = state.subscriptions.filter((sub) =>
+        ["active", "trialing", "grace"].includes(sub.status)
+    ).length;
     const activeCompanies = state.companies.filter((company) => company.status === "active").length;
 
     return `
-        <div class="space-y-8 animate-fade-in">
+        <div class="grid gap-8">
             <!-- Hero Stats -->
-            <section class="grid metrics !grid-cols-1 md:!grid-cols-2 lg:!grid-cols-4 gap-6">
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 ${metric("Paid Requests", paidRequests, "fa-receipt", "blue")}
                 ${metric("Pending Setup", pendingProvisioning, "fa-hourglass-half", "amber")}
                 ${metric("Active Subs", activeSubscriptions, "fa-credit-card", "indigo")}
                 ${metric("Companies", activeCompanies, "fa-building", "emerald")}
             </section>
 
-            <div class="grid two gap-8">
-                <div class="space-y-8">
+            <div class="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-8">
+                <div class="grid gap-8">
                     <!-- Provisioning Queue -->
-                    <div class="panel glass-card overflow-hidden">
-                        <div class="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                    <div class="bg-white/70 backdrop-blur-xl border border-white/50 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                        <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                             <div>
-                                <h3 class="text-lg font-bold">Provisioning Queue</h3>
-                                <p class="text-xs text-slate-500">Awaiting owner activation</p>
+                                <h3 class="text-lg font-black text-slate-800">Provisioning Queue</h3>
+                                <p class="text-xs text-slate-500 font-medium">Awaiting owner activation</p>
                             </div>
                             ${badge(pendingProvisioning + " Pending", "warning")}
                         </div>
-                        <div class="p-0">
+                        <div class="p-0 overflow-x-auto">
                             ${purchaseRequestTable(state.purchaseRequests.slice(0, 6), true)}
                         </div>
                     </div>
-
+                </div>
+                <div class="grid gap-8 items-start">
                     <!-- Usage Stats -->
-                    <div class="panel glass-card">
-                        <div class="p-6 border-b border-white/5">
-                            <h3 class="text-lg font-bold">Plan Usage</h3>
-                            <p class="text-xs text-slate-500">Tenant resource consumption</p>
+                    <div class="bg-white/70 backdrop-blur-xl border border-white/50 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                        <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                            <h3 class="text-lg font-black text-slate-800">Plan Usage</h3>
+                            <p class="text-xs text-slate-500 font-medium">Tenant resource consumption</p>
                         </div>
                         <div class="p-6">
                             ${companyUsageList()}
                         </div>
-                    </div>
-                </div>
-
-                <!-- Recent Activity -->
-                <div class="panel glass-card">
-                    <div class="p-6 border-b border-white/5 flex justify-between items-center">
-                        <div>
-                            <h3 class="text-lg font-bold">Audit Log</h3>
-                            <p class="text-xs text-slate-500">Real-time system events</p>
-                        </div>
-                        <i class="fas fa-history text-slate-600"></i>
-                    </div>
-                    <div class="p-0">
-                        ${activityTable(state.logs.slice(0, 10))}
                     </div>
                 </div>
             </div>
@@ -344,34 +370,34 @@ function renderPurchaseRequests() {
 
     return `
         <div class="grid">
-            <section class="hero">
+            <section class="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-8 items-center p-8 bg-gradient-to-br from-white/90 to-white/50 backdrop-blur-xl border border-slate-200 rounded-3xl shadow-xl shadow-slate-200/50 mb-8">
                 <div>
-                    <p class="eyebrow">Manual confirmation workflow</p>
-                    <h2>Confirm payment, then provision access.</h2>
-                    <p class="muted">Use this queue after a buyer completes Razorpay checkout. The button creates the subscription, company, owner user profile, and access pass in Firestore.</p>
+                    <p class="text-xs font-black tracking-widest uppercase text-pink-500 mb-2">Manual confirmation workflow</p>
+                    <h2 class="text-3xl font-black text-slate-900 mb-4">Confirm payment, then provision access.</h2>
+                    <p class="text-slate-600 text-sm font-medium">Use this queue after a buyer completes Razorpay checkout. The button creates the subscription, company, owner user profile, and access pass in Firestore.</p>
                 </div>
-                <div class="domain-strip">
+                <div class="grid gap-2.5">
                     ${domainItem("1. Buyer login", "Firebase Auth account from public checkout")}
                     ${domainItem("2. Razorpay", "Subscription created and linked to a purchase request")}
                     ${domainItem("3. Owner review", "You confirm payment in this portal")}
                     ${domainItem("4. Access pass", "SaaS login details are created after provisioning")}
                 </div>
             </section>
-            <section class="grid two">
-                <div class="panel">
-                    <div class="table-head">
+            <section class="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-8">
+                <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
+                    <div class="flex justify-between items-start gap-4 mb-4">
                         <div>
-                            <h3>Needs Owner Action</h3>
-                            <p class="muted">${openRequests.length} request${openRequests.length === 1 ? "" : "s"} waiting for review.</p>
+                            <h3 class="text-lg font-black text-slate-800">Needs Owner Action</h3>
+                            <p class="text-slate-500 text-sm font-medium">${openRequests.length} request${openRequests.length === 1 ? "" : "s"} waiting for review.</p>
                         </div>
                     </div>
                     ${purchaseRequestTable(openRequests)}
                 </div>
-                <div class="panel">
-                    <div class="table-head">
+                <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
+                    <div class="flex justify-between items-start gap-4 mb-4">
                         <div>
-                            <h3>Provisioned</h3>
-                            <p class="muted">${completedRequests.length} completed customer setup${completedRequests.length === 1 ? "" : "s"}.</p>
+                            <h3 class="text-lg font-black text-slate-800">Provisioned</h3>
+                            <p class="text-slate-500 text-sm font-medium">${completedRequests.length} completed customer setup${completedRequests.length === 1 ? "" : "s"}.</p>
                         </div>
                     </div>
                     ${purchaseRequestTable(completedRequests, true)}
@@ -382,48 +408,25 @@ function renderPurchaseRequests() {
 }
 
 function renderCompanies() {
-    const availableSubscriptions = state.subscriptions.filter((sub) => !sub.companyId && ["active", "trialing", "grace"].includes(sub.status));
+    const availableSubscriptions = state.subscriptions.filter(
+        (sub) => !sub.companyId && ["active", "trialing", "grace"].includes(sub.status)
+    );
     return `
-        <div class="grid two">
-            <div class="panel">
-                <h3>Create Company Workspace</h3>
-                <p class="muted">Creates the customer workspace and first login profile after you create the Firebase Auth user.</p>
-                <form id="companyForm" class="form">
-                    <div class="field">
-                        <label for="companySubscription">Subscription</label>
-                        <select id="companySubscription" required>
-                            <option value="">Select subscription</option>
-                            ${availableSubscriptions.map((sub) => `<option value="${sub.id}">${escapeHtml(sub.customerName)} - ${planName(sub.plan)}</option>`).join("")}
-                        </select>
-                    </div>
-                    <div class="field">
-                        <label for="companyName">Company Name</label>
-                        <input id="companyName" required placeholder="e.g. Udaan Talent Partners">
-                    </div>
-                    <div class="field">
-                        <label for="companySubdomain">Client ID / Subdomain</label>
-                        <input id="companySubdomain" required placeholder="e.g. udaan-talent">
-                    </div>
-                    <div class="field">
-                        <label for="ownerId">Firebase Auth UID</label>
-                        <input id="ownerId" required placeholder="UID for the customer login you created">
-                    </div>
-                    <div class="field">
-                        <label for="ownerName">Owner Name</label>
-                        <input id="ownerName" required>
-                    </div>
-                    <div class="field">
-                        <label for="ownerEmail">Owner Email</label>
-                        <input id="ownerEmail" type="email" required>
-                    </div>
-                    <button class="btn btn-primary" type="submit"><i class="fas fa-building-circle-check"></i> Provision</button>
-                </form>
-            </div>
-            <div class="panel">
-                <div class="table-head">
+        <div class="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-8 items-start">
+            <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
+                <div class="flex justify-between items-start mb-4">
                     <div>
-                        <h3>Managed Companies</h3>
-                        <p class="muted">${state.companies.length} company records</p>
+                        <h3 class="text-lg font-black text-slate-800 mb-2">Create Company Workspace</h3>
+                        <p class="text-slate-500 text-sm font-medium mb-6">Creates the customer workspace and first login profile after you create the Firebase Auth user.</p>
+                    </div>
+                    <!-- Action available in header; removed duplicate card CTA -->
+                </div>
+            </div>
+            <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
+                <div class="flex justify-between items-start gap-4 mb-4">
+                    <div>
+                        <h3 class="text-lg font-black text-slate-800">Managed Companies</h3>
+                        <p class="text-slate-500 text-sm font-medium">${state.companies.length} company records</p>
                     </div>
                 </div>
                 ${companyTable(state.companies)}
@@ -434,44 +437,21 @@ function renderCompanies() {
 
 function renderUsers() {
     return `
-        <div class="grid two">
-            <div class="panel">
-                <h3>Invite User</h3>
-                <p class="muted">Create the Firebase Auth account first, then add the user profile here and send the customer their app link plus credentials.</p>
-                <form id="userForm" class="form">
-                    <div class="field">
-                        <label for="userCompany">Company</label>
-                        <select id="userCompany" required>
-                            <option value="">Select company</option>
-                            ${state.companies.map((company) => `<option value="${company.id}">${escapeHtml(company.companyName)} - ${userCount(company.id)}/${company.maxUsers}</option>`).join("")}
-                        </select>
-                    </div>
-                    <div class="field">
-                        <label for="inviteName">User Name</label>
-                        <input id="inviteName" required>
-                    </div>
-                    <div class="field">
-                        <label for="inviteUid">Firebase Auth UID</label>
-                        <input id="inviteUid" required placeholder="UID for the login you created">
-                    </div>
-                    <div class="field">
-                        <label for="inviteEmail">Email</label>
-                        <input id="inviteEmail" type="email" required>
-                    </div>
-                    <div class="field">
-                        <label for="inviteRole">Role</label>
-                        <select id="inviteRole" required>
-                            ${Object.values(ROLE_DEFINITIONS).map((role) => `<option value="${role.id}">${role.label}</option>`).join("")}
-                        </select>
-                    </div>
-                    <button class="btn btn-primary" type="submit"><i class="fas fa-user-plus"></i> Create Login Profile</button>
-                </form>
-            </div>
-            <div class="panel">
-                <div class="table-head">
+        <div class="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-8 items-start">
+            <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
+                <div class="flex justify-between items-start mb-4">
                     <div>
-                        <h3>Users</h3>
-                        <p class="muted">${state.users.length} users across all tenants</p>
+                        <h3 class="text-lg font-black text-slate-800 mb-2">Invite User</h3>
+                        <p class="text-slate-500 text-sm font-medium mb-6">Create the Firebase Auth account first, then add the user profile here and send the customer their app link plus credentials.</p>
+                    </div>
+                    <!-- Action available in header; removed duplicate card CTA -->
+                </div>
+            </div>
+            <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
+                <div class="flex justify-between items-start gap-4 mb-4">
+                    <div>
+                        <h3 class="text-lg font-black text-slate-800">Users</h3>
+                        <p class="text-slate-500 text-sm font-medium">${state.users.length} users across all tenants</p>
                     </div>
                 </div>
                 ${userTable(state.users)}
@@ -488,44 +468,52 @@ function renderRoles() {
         <div class="space-y-8 animate-fade-in">
             <!-- RBAC Matrix -->
             <div class="panel glass-card overflow-hidden">
-                <div class="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                <div class="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-100/50">
                     <div>
                         <h3 class="text-lg font-bold">Permission Matrix</h3>
                         <p class="text-xs text-slate-500">Cross-role capability mapping for the Nextgen Ecosystem</p>
                     </div>
                     <div class="flex gap-2">
-                        ${roles.map(r => badge(r.label, "soft")).join("")}
+                        ${roles.map((r) => badge(r.label, "soft")).join("")}
                     </div>
                 </div>
                 <div class="table-wrap overflow-x-auto">
                     <table class="w-full text-left">
                         <thead>
-                            <tr class="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                            <tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500">
                                 <th class="px-6 py-4">Permission Scope</th>
-                                ${roles.map(role => `<th class="px-6 py-4 text-center">${role.label}</th>`).join("")}
+                                ${roles.map((role) => `<th class="px-6 py-4 text-center">${role.label}</th>`).join("")}
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-white/5">
-                            ${permissions.map(perm => `
-                                <tr class="hover:bg-white/5 transition-colors">
+                        <tbody class="divide-y divide-slate-100">
+                            ${permissions
+                                .map(
+                                    (perm) => `
+                                <tr class="hover:bg-slate-50 transition-colors">
                                     <td class="px-6 py-4">
-                                        <div class="font-bold text-slate-200">${perm.replace(/_/g, ' ')}</div>
+                                        <div class="font-bold text-slate-800">${perm.replace(/_/g, " ")}</div>
                                         <div class="text-[10px] text-slate-500 font-medium uppercase">Capability</div>
                                     </td>
-                                    ${roles.map(role => {
-                                        const has = role.permissions.includes(perm) || role.permissions.includes("full_access");
-                                        return `
+                                    ${roles
+                                        .map((role) => {
+                                            const has =
+                                                role.permissions.includes(perm) ||
+                                                role.permissions.includes("full_access");
+                                            return `
                                             <td class="px-6 py-4 text-center">
                                                 <div class="flex justify-center">
-                                                    <div class="w-6 h-6 rounded-md flex items-center justify-center ${has ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-slate-600"}">
+                                                    <div class="w-6 h-6 rounded-md flex items-center justify-center ${has ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-700"}">
                                                         <i class="fas ${has ? "fa-check" : "fa-minus text-[10px]"}"></i>
                                                     </div>
                                                 </div>
                                             </td>
                                         `;
-                                    }).join("")}
+                                        })
+                                        .join("")}
                                 </tr>
-                            `).join("")}
+                            `
+                                )
+                                .join("")}
                         </tbody>
                     </table>
                 </div>
@@ -534,7 +522,7 @@ function renderRoles() {
             <div class="grid two gap-8">
                 <!-- Role Assignment -->
                 <div class="panel glass-card">
-                    <div class="p-6 border-b border-white/5">
+                    <div class="p-6 border-b border-slate-200">
                         <h3 class="text-lg font-bold">Assign Member Role</h3>
                         <p class="text-xs text-slate-500">Update permissions for a specific user profile</p>
                     </div>
@@ -550,13 +538,17 @@ function renderRoles() {
                             <div class="space-y-2">
                                 <label class="text-xs font-bold text-slate-500 uppercase tracking-widest">Target Role</label>
                                 <div class="grid grid-cols-2 gap-3">
-                                    ${roles.map(role => `
-                                        <label class="relative flex flex-col p-4 rounded-xl border border-white/5 bg-white/5 cursor-pointer hover:bg-white/10 transition-all">
+                                    ${roles
+                                        .map(
+                                            (role) => `
+                                        <label class="relative flex flex-col p-4 rounded-xl border border-slate-200 bg-slate-100/50 cursor-pointer hover:bg-white/10 transition-all">
                                             <input type="radio" name="roleValue" value="${role.id}" class="sr-only" required>
-                                            <span class="text-sm font-bold text-slate-200">${role.label}</span>
+                                            <span class="text-sm font-bold text-slate-800">${role.label}</span>
                                             <span class="text-[10px] text-slate-500 font-medium">${role.permissions.length} perms</span>
                                         </label>
-                                    `).join("")}
+                                    `
+                                        )
+                                        .join("")}
                                 </div>
                             </div>
                             <button class="btn btn-primary w-full shimmer" type="submit">
@@ -589,36 +581,18 @@ function renderRoles() {
 function renderSubscriptions() {
     return `
         <div class="grid">
-            <section class="grid three">
-                ${Object.values(PLAN_CATALOG).map(planCard).join("")}
-            </section>
             <section class="grid two">
                 <div class="panel">
-                    <h3>Create Subscription</h3>
-                    <p class="muted">Owner-operated provisioning. Customers do not see billing controls here.</p>
-                    <form id="subscriptionForm" class="form">
-                        <div class="field"><label for="customerName">Customer Name</label><input id="customerName" required></div>
-                        <div class="field"><label for="customerEmail">Customer Email</label><input id="customerEmail" type="email" required></div>
-                        <div class="field">
-                            <label for="plan">Plan</label>
-                            <select id="plan" required>
-                                ${Object.values(PLAN_CATALOG).map((plan) => `<option value="${plan.id}">${plan.name}</option>`).join("")}
-                            </select>
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 class="text-lg font-bold">Create Subscription</h3>
+                            <p class="text-sm text-slate-500">Owner-operated provisioning. Customers do not see billing controls here.</p>
                         </div>
-                        <div class="field"><label for="customMaxUsers">Custom Max Users</label><input id="customMaxUsers" type="number" min="1" placeholder="Only for Custom"></div>
-                        <div class="field"><label for="customPrice">Custom Price Monthly</label><input id="customPrice" type="number" min="0" placeholder="Only for Custom"></div>
-                        <div class="field">
-                            <label for="status">Status</label>
-                            <select id="status">
-                                <option value="trialing">Trialing</option>
-                                <option value="active">Active</option>
-                                <option value="grace">Grace</option>
-                                <option value="past_due">Past due</option>
-                                <option value="suspended">Suspended</option>
-                            </select>
+                        <div>
+                            <button id="btnOpenSubscriptionModal" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-pink-500 text-white font-bold shadow-lg shadow-pink-500/20"> <i class="fas fa-plus"></i> Create Subscription</button>
                         </div>
-                        <button class="btn btn-primary" type="submit"><i class="fas fa-circle-plus"></i> Create Subscription</button>
-                    </form>
+                    </div>
+                    <div class="text-sm text-slate-600">Use the dialog to create a subscription record and set custom limits for trial or paid customers.</div>
                 </div>
                 <div class="panel">
                     <div class="table-head">
@@ -631,6 +605,104 @@ function renderSubscriptions() {
                 </div>
             </section>
         </div>
+    `;
+}
+
+function renderEmails() {
+    const filtered = state.emails.filter((email) => {
+        const search = state.emailSearch.toLowerCase().trim();
+        if (!search) return true;
+        return [email.emailAddress, email.purpose, email.assignedTo, email.companyId]
+            .filter(Boolean)
+            .some((value) => value.toLowerCase().includes(search));
+    });
+
+    return `
+        <div class="grid gap-6">
+            <section class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-3xl p-6 shadow-lg shadow-slate-200/40">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+                    <div>
+                        <h3 class="text-xl font-black text-slate-900">Email Credentials</h3>
+                        <p class="text-sm text-slate-500">Store and manage shared mailbox credentials used by your access portal.</p>
+                    </div>
+                    <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                        <input id="emailSearch" type="search" placeholder="Search..." value="${escapeHtml(state.emailSearch)}" class="w-full sm:w-72 min-h-[42px] px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all" />
+                        <button id="btnAddEmail" class="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-pink-500 text-slate-900 font-bold rounded-xl hover:shadow-lg hover:shadow-pink-500/20 transition-all"><i class="fas fa-plus"></i> Add Email</button>
+                    </div>
+                </div>
+                ${emailTable(filtered)}
+            </section>
+        </div>
+    `;
+}
+
+function emailTable(emails) {
+    if (!emails.length) return empty("No email credentials found.");
+    return `
+        <div class="table-wrap overflow-x-auto">
+            <table class="w-full text-left">
+                <thead>
+                    <tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        <th class="px-6 py-4">Email Address</th>
+                        <th class="px-6 py-4">Password</th>
+                        <th class="px-6 py-4">Purpose</th>
+                        <th class="px-6 py-4">Assigned To</th>
+                        <th class="px-6 py-4">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    ${emails
+                        .map(
+                            (email) => `
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="px-6 py-4">
+                                        <div class="font-bold text-slate-800">${escapeHtml(email.emailAddress)}</div>
+                                        <div class="text-[10px] text-slate-500 font-medium">${escapeHtml(email.companyId || "Global")}</div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="inline-flex items-center gap-3">
+                                            <span id="pwd-${email.id}" class="font-mono text-[13px] text-slate-700">${escapeHtml(email.password ? "•".repeat(10) : "")}</span>
+                                            <button class="text-slate-500 hover:text-slate-900" type="button" data-email-action="toggle-visibility" data-email-id="${email.id}" title="Show/Hide password"><i class="fas fa-eye"></i></button>
+                                            <button class="text-slate-500 hover:text-slate-900" type="button" data-email-action="copy-password" data-email-id="${email.id}" title="Copy password"><i class="fas fa-copy"></i></button>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4">${badge(email.purpose || "General", "soft")}</td>
+                                    <td class="px-6 py-4">${escapeHtml(email.assignedTo || "Unassigned")}</td>
+                                    <td class="px-6 py-4">${recordActions("emails", email.id)}</td>
+                                </tr>
+                            `
+                        )
+                        .join("")}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function renderEmailModalPayload(email = {}) {
+    const now = new Date().toISOString();
+    return `
+        <div class="grid gap-1.5">
+            <label class="text-sm font-bold text-slate-700">Email Address</label>
+            <input id="emailAddress" type="email" required value="${escapeHtml(email.emailAddress || "")}" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all" />
+        </div>
+        <div class="grid gap-1.5">
+            <label class="text-sm font-bold text-slate-700">Password</label>
+            <input id="password" type="text" required value="${escapeHtml(email.password || "")}" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all" />
+        </div>
+        <div class="grid gap-1.5">
+            <label class="text-sm font-bold text-slate-700">Purpose</label>
+            <input id="purpose" value="${escapeHtml(email.purpose || "")}" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all" />
+        </div>
+        <div class="grid gap-1.5">
+            <label class="text-sm font-bold text-slate-700">Assigned To</label>
+            <input id="assignedTo" value="${escapeHtml(email.assignedTo || "")}" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all" />
+        </div>
+        <div class="grid gap-1.5">
+            <label class="text-sm font-bold text-slate-700">Company ID</label>
+            <input id="companyId" value="${escapeHtml(email.companyId || "")}" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all" />
+        </div>
+        <input type="hidden" id="createdAt" value="${escapeHtml(email.createdAt || now)}" />
     `;
 }
 
@@ -649,20 +721,31 @@ function renderModules() {
                     </div>
                 </div>
                 <div class="grid three">
-                    ${Object.values(FEATURES).map((feature) => `
+                    ${Object.values(FEATURES)
+                        .map(
+                            (feature) => `
                         <div class="panel">
                             <h3>${feature.label}</h3>
                             <p class="muted">${feature.description}</p>
                             ${badge(hasFeature(company, subscription, feature.key) ? "Plan enabled" : "Plan blocked", hasFeature(company, subscription, feature.key) ? "success" : "danger")}
                             ${badge(canAccessModule(user, company, subscription, feature.key) ? "Role allowed" : "Role blocked", canAccessModule(user, company, subscription, feature.key) ? "success" : "warning")}
                         </div>
-                    `).join("")}
+                    `
+                        )
+                        .join("")}
                 </div>
             </section>
             <section class="panel">
                 <h3>Permission Probe</h3>
                 <p class="muted">Active user: ${escapeHtml(user?.name || "Unknown")} - role: ${escapeHtml(user?.role || "none")}</p>
-                <div>${Object.values(PERMISSIONS).map((permission) => badge(`${permission}: ${hasPermission(user, permission) ? "yes" : "no"}`, hasPermission(user, permission) ? "success" : "soft")).join("")}</div>
+                <div>${Object.values(PERMISSIONS)
+                    .map((permission) =>
+                        badge(
+                            `${permission}: ${hasPermission(user, permission) ? "yes" : "no"}`,
+                            hasPermission(user, permission) ? "success" : "soft"
+                        )
+                    )
+                    .join("")}</div>
             </section>
         </div>
     `;
@@ -698,7 +781,6 @@ function renderArchitecture() {
                         ${domainItem("/subscriptions/{subscriptionId}", "plan, maxUsers, status, dates, Razorpay ids, custom limits")}
                         ${domainItem("/roles/{roleId}", "companyId, label, permissions, status")}
                         ${domainItem("/permissions/{permissionId}", "key, module, description")}
-                        ${domainItem("/activityLogs/{logId}", "companyId, actorId, action, entity, metadata")}
                     </div>
                 </div>
                 <div class="panel">
@@ -707,7 +789,7 @@ function renderArchitecture() {
                         ${domainItem("Tenant isolation", "All RMS reads and writes include companyId equality checks.")}
                         ${domainItem("Optimized queries", "Use companyId + createdAt indexes for users, jobs, candidates, and logs.")}
                         ${domainItem("Credential flow", "You create Auth users, add /users profiles, and send app link plus credentials.")}
-                        ${domainItem("Webhook sync", "Existing Razorpay webhook updates /subscriptions and logs activity.")}
+                        ${domainItem("Webhook sync", "Existing Razorpay webhook updates /subscriptions.")}
                         ${domainItem("Suspension", "Failed payment enters grace, then suspended after gracePeriodDays.")}
                     </div>
                 </div>
@@ -731,16 +813,26 @@ function bindShellEvents() {
         toast("Data refreshed.");
     });
     document.getElementById("primaryAction")?.addEventListener("click", () => {
+        if (state.view === "emails") {
+            showEmailModal();
+            return;
+        }
         document.querySelector("form input, form select")?.focus();
         document.querySelector("form")?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
 }
 
 function bindViewEvents() {
-    document.getElementById("subscriptionForm")?.addEventListener("submit", handleCreateSubscription);
-    document.getElementById("companyForm")?.addEventListener("submit", handleCreateCompany);
-    document.getElementById("userForm")?.addEventListener("submit", handleInviteUser);
-    document.getElementById("roleForm")?.addEventListener("submit", handleAssignRole);
+    // Setup Modal Triggers
+    document.getElementById("btnOpenCompanyModal")?.addEventListener("click", showCompanyModal);
+    document.getElementById("btnOpenUserModal")?.addEventListener("click", showUserModal);
+    document.getElementById("btnOpenSubscriptionModal")?.addEventListener("click", showSubscriptionModal);
+    document.getElementById("btnOpenRoleModal")?.addEventListener("click", showRoleModal);
+    document.getElementById("btnAddEmail")?.addEventListener("click", () => showEmailModal());
+    document.getElementById("emailSearch")?.addEventListener("input", (event) => {
+        state.emailSearch = event.target.value || "";
+        renderShell();
+    });
 
     const companyNameInput = document.getElementById("companyName");
     const companySubdomainInput = document.getElementById("companySubdomain");
@@ -758,18 +850,84 @@ function bindViewEvents() {
         button.addEventListener("click", () => handleSubscriptionAction(button));
     });
 
+    document.querySelectorAll("[data-email-action]").forEach((button) => {
+        button.addEventListener("click", () => handleEmailAction(button));
+    });
+
     document.querySelectorAll("[data-record-action]").forEach((button) => {
         button.addEventListener("click", () => handleRecordAction(button));
     });
 }
 
+function showEmailModal(email = {}) {
+    openModal({
+        title: email.id ? "Edit Email Credential" : "Add Email Credential",
+        submitLabel: email ? "Save Email" : "Create Email",
+        content: renderEmailModalPayload(email),
+        onSubmit: async (_e, _form, close) => {
+            const payload = {
+                emailAddress: document.getElementById("emailAddress").value.trim(),
+                password: document.getElementById("password").value.trim(),
+                purpose: document.getElementById("purpose").value.trim(),
+                assignedTo: document.getElementById("assignedTo").value.trim(),
+                companyId: document.getElementById("companyId").value.trim() || "",
+                createdAt: document.getElementById("createdAt").value
+            };
+
+            if (!payload.emailAddress || !payload.password) {
+                toast("Email address and password are required.", true);
+                return;
+            }
+
+            if (email?.id) {
+                await updateRecord("emails", email.id, payload);
+                toast("Email updated.");
+            } else {
+                await createRecord("emails", payload);
+                toast("Email created.");
+            }
+
+            await loadData();
+            renderShell();
+            close();
+        }
+    });
+}
+
+function handleEmailAction(button) {
+    const action = button.dataset.emailAction;
+    const id = button.dataset.emailId;
+    const email = state.emails.find((item) => item.id === id);
+    if (!email) {
+        toast("Email record not found.", true);
+        return;
+    }
+
+    if (action === "copy-password") {
+        navigator.clipboard?.writeText(email.password || "");
+        toast("Password copied to clipboard.");
+        return;
+    }
+
+    if (action === "toggle-visibility") {
+        const passwordField = document.getElementById(`pwd-${id}`);
+        if (!passwordField) return;
+        const currentlyMasked = passwordField.textContent.includes("•");
+        passwordField.textContent = currentlyMasked ? email.password || "" : "•".repeat(10);
+        return;
+    }
+}
+
 function slugify(text) {
-    return text.toString().toLowerCase().trim()
-        .replace(/\s+/g, '-')           // Replace spaces with -
-        .replace(/[^\w\-]+/g, '')       // Remove all non-word chars
-        .replace(/\-\-+/g, '-')         // Replace multiple - with single -
-        .replace(/^-+/, '')             // Trim - from start
-        .replace(/-+$/, '');            // Trim - from end
+    return text
+        .toString()
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, "-") // Replace spaces with -
+        .replace(/[^\w\-]+/g, "") // Remove all non-word chars
+        .replace(/\-\-+/g, "-") // Replace multiple - with single -
+        .replace(/^-+/, "") // Trim - from start
+        .replace(/-+$/, ""); // Trim - from end
 }
 
 function getClientId(value) {
@@ -785,7 +943,12 @@ async function handleProvisionRequest(requestId) {
 
     // 1. Prompt for customized subdomain slug
     const suggestedSlug = getClientId(request.companyName);
-    const companySlug = getClientId(prompt("Confirm Client ID / Subdomain for this Company:\n(e.g., entering 'brawn' will create brawn.nextgenudaan.in/app)", suggestedSlug));
+    const companySlug = getClientId(
+        prompt(
+            "Confirm Client ID / Subdomain for this Company:\n(e.g., entering 'brawn' will create brawn.nextgenudaan.in/app)",
+            suggestedSlug
+        )
+    );
     if (!companySlug) {
         toast("Provisioning cancelled.", true);
         return;
@@ -800,7 +963,9 @@ async function handleProvisionRequest(requestId) {
         firebaseUser = authCredential.user;
     } catch (authError) {
         if (authError.code === "auth/email-already-in-use") {
-            const uid = prompt("An authentication account with this email already exists.\nIf you want to link to their existing account, enter their Firebase UID from the console below (or click Cancel):");
+            const uid = prompt(
+                "An authentication account with this email already exists.\nIf you want to link to their existing account, enter their Firebase UID from the console below (or click Cancel):"
+            );
             if (!uid) {
                 toast("Provisioning cancelled.", true);
                 return;
@@ -854,121 +1019,25 @@ async function handleProvisionRequest(requestId) {
         activatedBy: state.session.user?.email || "owner"
     });
 
-    await logActivity({
-        companyId,
-        actorId: state.session.user?.id || "system",
-        action: "purchase_request.provisioned",
-        entityType: "purchaseRequest",
-        entityId: request.id,
-        metadata: { subscriptionId: request.id, accessPassId, plan: request.plan }
-    });
-
     await loadData();
     renderShell();
 
     // 6. Copy details to clipboard and show immersive alert
     const credentialsText = `Workspace Subdomain: ${companySlug}.nextgenudaan.in/app\nAdmin Email: ${request.buyerEmail}\nDefault Password: ${tempPassword}`;
     navigator.clipboard?.writeText(credentialsText);
-    alert(`🎉 Workspace Provisioned Successfully!\n\nCredentials have been COPIED to your clipboard:\n\n${credentialsText}\n\nYou can now paste this directly into an email to your client.`);
+    alert(
+        `🎉 Workspace Provisioned Successfully!\n\nCredentials have been COPIED to your clipboard:\n\n${credentialsText}\n\nYou can now paste this directly into an email to your client.`
+    );
 }
 
-async function handleCreateSubscription(event) {
-    event.preventDefault();
-    const payload = {
-        customerName: document.getElementById("customerName").value.trim(),
-        customerEmail: document.getElementById("customerEmail").value.trim(),
-        plan: document.getElementById("plan").value,
-        maxUsers: document.getElementById("customMaxUsers").value,
-        priceMonthly: document.getElementById("customPrice").value,
-        status: document.getElementById("status").value
-    };
-    const id = await createSubscription(payload);
-    await logActivity({
-        companyId: state.session.company?.id || "platform",
-        actorId: state.session.user?.id || "system",
-        action: "subscription.created",
-        entityType: "subscription",
-        entityId: id,
-        metadata: { plan: payload.plan }
-    });
-    await loadData();
-    renderShell();
-    toast("Subscription created.");
-}
-
-async function handleCreateCompany(event) {
-    event.preventDefault();
-    const subscription = await getRecord("subscriptions", document.getElementById("companySubscription").value);
-    const companySubdomain = getClientId(document.getElementById("companySubdomain").value);
-    if (!companySubdomain) {
-        toast("Enter a valid client ID / subdomain.", true);
-        return;
-    }
-    const companyId = await createCompanyWorkspace(subscription, {
-        companyId: companySubdomain,
-        companyName: document.getElementById("companyName").value.trim(),
-        ownerId: document.getElementById("ownerId").value.trim(),
-        ownerName: document.getElementById("ownerName").value.trim(),
-        ownerEmail: document.getElementById("ownerEmail").value.trim()
-    });
-    await logActivity({
-        companyId,
-        actorId: state.session.user?.id || "system",
-        action: "company.provisioned",
-        entityType: "company",
-        entityId: companyId
-    });
-    await loadData();
-    renderShell();
-    toast("Company workspace provisioned.");
-}
-
-async function handleInviteUser(event) {
-    event.preventDefault();
-    const company = state.companies.find((item) => item.id === document.getElementById("userCompany").value);
-    const subscription = selectedSubscription(company);
-    const activeUserCount = userCount(company.id);
-    const check = canAddUser(company, subscription, activeUserCount);
-    if (!check.allowed) {
-        toast(check.reason, true);
-        return;
-    }
-
-    const userId = await inviteUser({
-        company,
-        subscription,
-        activeUserCount,
-        userId: document.getElementById("inviteUid").value.trim(),
-        name: document.getElementById("inviteName").value.trim(),
-        email: document.getElementById("inviteEmail").value.trim(),
-        role: document.getElementById("inviteRole").value
-    });
-    await logActivity({
-        companyId: company.id,
-        actorId: state.session.user?.id || "system",
-        action: "user.login_profile_created",
-        entityType: "user",
-        entityId: userId
-    });
-    await loadData();
-    renderShell();
-    toast("Customer login profile created.");
-}
+// Legacy inline form handlers removed: creation flows now use modal dialogs
+// (handleCreateSubscription, _handleCreateCompanyOld, _handleInviteUserOld)
 
 async function handleAssignRole(event) {
     event.preventDefault();
     const userId = document.getElementById("roleUser").value;
     const role = document.getElementById("roleValue").value;
     await assignRole(userId, role);
-    const user = state.users.find((item) => item.id === userId);
-    await logActivity({
-        companyId: user?.companyId || state.session.company?.id || "platform",
-        actorId: state.session.user?.id || "system",
-        action: "role.assigned",
-        entityType: "user",
-        entityId: userId,
-        metadata: { role }
-    });
     await loadData();
     renderShell();
     toast("Role assigned.");
@@ -984,20 +1053,12 @@ async function handleSubscriptionAction(button) {
     if (action === "cancel") await cancelSubscription(id);
     if (action === "suspend") await updateRecord("subscriptions", id, { status: "suspended" });
 
-    await logActivity({
-        companyId: state.session.company?.id || "platform",
-        actorId: state.session.user?.id || "system",
-        action: `subscription.${action}`,
-        entityType: "subscription",
-        entityId: id,
-        metadata: { plan }
-    });
     await loadData();
     renderShell();
     toast(`Subscription ${action} saved.`);
 }
 
-function openModal(title, contentText, isReadOnly, onSave) {
+function openRecordModal(title, contentText, isReadOnly, onSave) {
     const existing = document.getElementById("custom-modal");
     if (existing) existing.remove();
 
@@ -1013,19 +1074,19 @@ function openModal(title, contentText, isReadOnly, onSave) {
         for (const [key, value] of Object.entries(obj)) {
             const fieldId = `field-${prefix}${key}`;
             const fieldLabel = key.replace(/([A-Z])/g, " $1").trim();
-            
+
             if (value === null) {
                 html += `
                     <div class="mb-3">
-                        <label class="block text-xs font-bold text-slate-400 mb-1">${escapeHtml(fieldLabel)}</label>
-                        <input type="text" id="${fieldId}" value="null" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-xs focus:border-blue-500 outline-none transition-colors" />
+                        <label class="block text-xs font-bold text-slate-500 mb-1">${escapeHtml(fieldLabel)}</label>
+                        <input type="text" id="${fieldId}" value="null" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs focus:border-blue-500 outline-none transition-colors" />
                     </div>
                 `;
             } else if (typeof value === "boolean") {
                 html += `
                     <div class="mb-3">
-                        <label class="block text-xs font-bold text-slate-400 mb-1">${escapeHtml(fieldLabel)}</label>
-                        <select id="${fieldId}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-xs focus:border-blue-500 outline-none transition-colors">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">${escapeHtml(fieldLabel)}</label>
+                        <select id="${fieldId}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs focus:border-blue-500 outline-none transition-colors">
                             <option value="true" ${value === true ? "selected" : ""}>True</option>
                             <option value="false" ${value === false ? "selected" : ""}>False</option>
                         </select>
@@ -1034,21 +1095,21 @@ function openModal(title, contentText, isReadOnly, onSave) {
             } else if (typeof value === "number") {
                 html += `
                     <div class="mb-3">
-                        <label class="block text-xs font-bold text-slate-400 mb-1">${escapeHtml(fieldLabel)}</label>
-                        <input type="number" id="${fieldId}" value="${value}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-xs focus:border-blue-500 outline-none transition-colors" />
+                        <label class="block text-xs font-bold text-slate-500 mb-1">${escapeHtml(fieldLabel)}</label>
+                        <input type="number" id="${fieldId}" value="${value}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs focus:border-blue-500 outline-none transition-colors" />
                     </div>
                 `;
             } else if (Array.isArray(value)) {
                 html += `
                     <div class="mb-3">
-                        <label class="block text-xs font-bold text-slate-400 mb-1">${escapeHtml(fieldLabel)}</label>
-                        <textarea id="${fieldId}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-xs font-mono focus:border-blue-500 outline-none transition-colors resize-none h-16">${JSON.stringify(value, null, 2)}</textarea>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">${escapeHtml(fieldLabel)}</label>
+                        <textarea id="${fieldId}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs font-mono focus:border-blue-500 outline-none transition-colors resize-none h-16">${JSON.stringify(value, null, 2)}</textarea>
                     </div>
                 `;
             } else if (typeof value === "object" && value !== null) {
                 html += `
-                    <div class="mb-3 p-2 bg-white/5 border border-white/10 rounded-lg">
-                        <label class="block text-xs font-bold text-slate-300 mb-2">${escapeHtml(fieldLabel)}</label>
+                    <div class="mb-3 p-2 bg-slate-100/50 border border-slate-200 rounded-lg">
+                        <label class="block text-xs font-bold text-slate-700 mb-2">${escapeHtml(fieldLabel)}</label>
                         <div class="ml-1">
                             ${generateFormFields(value, `${prefix}${key}-`)}
                         </div>
@@ -1057,8 +1118,47 @@ function openModal(title, contentText, isReadOnly, onSave) {
             } else {
                 html += `
                     <div class="mb-3">
-                        <label class="block text-xs font-bold text-slate-400 mb-1">${escapeHtml(fieldLabel)}</label>
-                        <input type="text" id="${fieldId}" value="${escapeHtml(String(value))}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-slate-300 text-xs focus:border-blue-500 outline-none transition-colors" />
+                        <label class="block text-xs font-bold text-slate-500 mb-1">${escapeHtml(fieldLabel)}</label>
+                        <input type="text" id="${fieldId}" value="${escapeHtml(String(value))}" ${isReadOnly ? "disabled" : ""} class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs focus:border-blue-500 outline-none transition-colors" />
+                    </div>
+                `;
+            }
+        }
+        return html;
+    };
+
+    const generateDisplayFields = (obj, prefix = "") => {
+        let html = "";
+        for (const [key, value] of Object.entries(obj)) {
+            const fieldLabel = key.replace(/([A-Z])/g, " $1").trim();
+
+            if (value === null) {
+                html += `
+                    <div class="grid gap-1 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                        <div class="text-[10px] uppercase tracking-widest text-slate-500">${escapeHtml(fieldLabel)}</div>
+                        <div class="text-sm text-slate-800">null</div>
+                    </div>
+                `;
+            } else if (typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
+                const displayValue = typeof value === "boolean" ? String(value) : value;
+                html += `
+                    <div class="grid gap-1 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                        <div class="text-[10px] uppercase tracking-widest text-slate-500">${escapeHtml(fieldLabel)}</div>
+                        <div class="text-sm text-slate-800 font-mono break-all">${escapeHtml(String(displayValue))}</div>
+                    </div>
+                `;
+            } else if (Array.isArray(value)) {
+                html += `
+                    <div class="grid gap-1 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                        <div class="text-[10px] uppercase tracking-widest text-slate-500">${escapeHtml(fieldLabel)}</div>
+                        <pre class="text-sm text-slate-800 font-mono whitespace-pre-wrap break-words">${escapeHtml(JSON.stringify(value, null, 2))}</pre>
+                    </div>
+                `;
+            } else if (typeof value === "object") {
+                html += `
+                    <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                        <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-2">${escapeHtml(fieldLabel)}</div>
+                        <div class="grid gap-2">${generateDisplayFields(value, `${prefix}${key}-`)}</div>
                     </div>
                 `;
             }
@@ -1068,21 +1168,20 @@ function openModal(title, contentText, isReadOnly, onSave) {
 
     const modal = document.createElement("div");
     modal.id = "custom-modal";
-    modal.className = "fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 animate-fade-in";
+    modal.className =
+        "fixed inset-0 z-[100] flex items-center justify-center bg-white/40 backdrop-blur-sm p-4 animate-fade-in";
     modal.innerHTML = `
-        <div class="bg-slate-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[70vh]">
-            <div class="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/5 flex-shrink-0">
-                <h3 class="text-base font-bold text-white truncate">${escapeHtml(title)}</h3>
-                <button id="modal-close" class="text-slate-400 hover:text-white transition-colors flex-shrink-0 ml-4"><i class="fas fa-times"></i></button>
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[70vh]">
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-100/50 flex-shrink-0">
+                <h3 class="text-base font-bold text-slate-900 truncate">${escapeHtml(title)}</h3>
+                <button id="modal-close" class="text-slate-500 hover:text-slate-900 transition-colors flex-shrink-0 ml-4"><i class="fas fa-times"></i></button>
             </div>
             <div class="px-5 py-4 overflow-y-auto flex-1 min-h-0">
-                <form id="modal-form" class="space-y-3">
-                    ${generateFormFields(data)}
-                </form>
+                ${isReadOnly ? `<div class="space-y-3">${generateDisplayFields(data)}</div>` : `<form id="modal-form" class="space-y-3">${generateFormFields(data)}</form>`}
             </div>
-            <div class="px-6 py-4 border-t border-white/5 bg-black/20 flex justify-end gap-2 flex-shrink-0">
-                <button id="modal-cancel" class="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs font-bold transition-all">Close</button>
-                ${isReadOnly ? "" : `<button id="modal-save" type="button" class="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-500/20 transition-all">Save</button>`}
+            <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-2 flex-shrink-0">
+                <button id="modal-cancel" class="px-3 py-2 rounded-lg bg-slate-100/50 hover:bg-white/10 text-slate-900 text-xs font-bold transition-all">Close</button>
+                ${isReadOnly ? "" : `<button id="modal-save" type="button" class="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-slate-900 text-xs font-bold shadow-lg shadow-blue-500/20 transition-all">Save</button>`}
             </div>
         </div>
     `;
@@ -1092,28 +1191,28 @@ function openModal(title, contentText, isReadOnly, onSave) {
     const close = () => modal.remove();
     document.getElementById("modal-close").addEventListener("click", close);
     document.getElementById("modal-cancel").addEventListener("click", close);
-    
+
     if (!isReadOnly) {
         document.getElementById("modal-save").addEventListener("click", () => {
             const formData = {};
             const form = document.getElementById("modal-form");
             const inputs = form.querySelectorAll("input, select, textarea");
-            
+
             inputs.forEach((input) => {
                 const fieldId = input.id;
                 if (!fieldId) return;
-                
+
                 const path = fieldId.replace("field-", "").split("-");
                 let current = formData;
-                
+
                 for (let i = 0; i < path.length - 1; i++) {
                     if (!current[path[i]]) current[path[i]] = {};
                     current = current[path[i]];
                 }
-                
+
                 const key = path[path.length - 1];
                 let value = input.value;
-                
+
                 if (input.tagName === "SELECT") {
                     value = value === "true" ? true : value === "false" ? false : value;
                 } else if (input.type === "number") {
@@ -1125,10 +1224,10 @@ function openModal(title, contentText, isReadOnly, onSave) {
                         value = input.value;
                     }
                 }
-                
+
                 current[key] = value;
             });
-            
+
             const result = Object.keys(formData).length === 0 ? contentText : JSON.stringify(formData, null, 2);
             onSave(result);
             close();
@@ -1148,17 +1247,22 @@ async function handleRecordAction(button) {
     }
 
     if (action === "view") {
-        openModal(`View ${collectionName}/${id}`, JSON.stringify(record, null, 2), true);
+        openRecordModal(`View ${collectionName}/${id}`, JSON.stringify(record, null, 2), true);
         return;
     }
 
     if (action === "edit") {
+        if (collectionName === "emails") {
+            showEmailModal(record);
+            return;
+        }
+
         const editableRecord = { ...record };
         delete editableRecord.id;
         delete editableRecord.createdAt;
         delete editableRecord.updatedAt;
 
-        openModal(
+        openRecordModal(
             `Edit ${collectionName}/${id}`,
             JSON.stringify(editableRecord, null, 2),
             false,
@@ -1167,7 +1271,6 @@ async function handleRecordAction(button) {
                 try {
                     const payload = JSON.parse(input);
                     await updateRecord(collectionName, id, payload);
-                    await logRecordAction(collectionName, id, "updated");
                     await loadData();
                     renderShell();
                     toast("Record updated.");
@@ -1185,27 +1288,12 @@ async function handleRecordAction(button) {
 
         try {
             await deleteRecord(collectionName, id);
-            await logRecordAction(collectionName, id, "deleted");
             await loadData();
             renderShell();
             toast("Record deleted.");
         } catch (error) {
             toast(`Delete failed: ${error.message}`, true);
         }
-    }
-}
-
-async function logRecordAction(collectionName, id, action) {
-    try {
-        await logActivity({
-            companyId: state.session.company?.id || "platform",
-            actorId: state.session.user?.id || "system",
-            action: `${collectionName}.${action}`,
-            entityType: collectionName,
-            entityId: id
-        });
-    } catch (error) {
-        console.warn("Activity log skipped:", error);
     }
 }
 
@@ -1216,9 +1304,9 @@ function findRecord(collectionName, id) {
         users: state.users,
         roles: state.roles,
         permissions: state.permissions,
-        activityLogs: state.logs,
         accessPasses: state.accessPasses,
-        purchaseRequests: state.purchaseRequests
+        purchaseRequests: state.purchaseRequests,
+        emails: state.emails
     };
     return collections[collectionName]?.find((item) => item.id === id);
 }
@@ -1229,21 +1317,22 @@ function purchaseRequestTable(requests, compact = false) {
         <div class="table-wrap overflow-x-auto">
             <table class="w-full text-left">
                 <thead>
-                    <tr class="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500">
                         <th class="px-6 py-4">Buyer</th>
                         <th class="px-6 py-4">Plan</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4">Provisioning</th>
-                        ${compact ? "" : "<th class=\"px-6 py-4\">Action</th>"}
+                        ${compact ? "" : '<th class="px-6 py-4">Action</th>'}
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5">
-                    ${requests.map((request) => {
-        const completed = request.provisioningStatus === "completed";
-        return `
-                            <tr class="hover:bg-white/5 transition-colors">
+                <tbody class="divide-y divide-slate-100">
+                    ${requests
+                        .map((request) => {
+                            const completed = request.provisioningStatus === "completed";
+                            return `
+                            <tr class="hover:bg-slate-50 transition-colors">
                                 <td class="px-6 py-4">
-                                    <div class="font-bold text-slate-200">${escapeHtml(request.companyName || request.buyerName || "Unknown buyer")}</div>
+                                    <div class="font-bold text-slate-800">${escapeHtml(request.companyName || request.buyerName || "Unknown buyer")}</div>
                                     <div class="text-[10px] text-slate-500 font-medium">${escapeHtml(request.buyerEmail || "")}</div>
                                 </td>
                                 <td class="px-6 py-4">
@@ -1255,16 +1344,21 @@ function purchaseRequestTable(requests, compact = false) {
                                     <div class="text-[10px] text-slate-500 mt-1">${formatDateTime(request.updatedAt || request.createdAt)}</div>
                                 </td>
                                 <td class="px-6 py-4">${badge(request.provisioningStatus || "idle", completed ? "success" : "warning")}</td>
-                                ${compact ? "" : `
+                                ${
+                                    compact
+                                        ? ""
+                                        : `
                                     <td class="px-6 py-4">
-                                        <button class="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold shadow-lg shadow-blue-500/20 hover:scale-105 transition-all disabled:opacity-50 disabled:scale-100" data-provision-request="${request.id}" ${completed ? "disabled" : ""}>
+                                        <button class="px-4 py-2 rounded-xl bg-blue-600 text-slate-900 text-xs font-bold shadow-lg shadow-blue-500/20 hover:scale-105 transition-all disabled:opacity-50 disabled:scale-100" data-provision-request="${request.id}" ${completed ? "disabled" : ""}>
                                             Activate
                                         </button>
                                     </td>
-                                `}
+                                `
+                                }
                             </tr>
                         `;
-    }).join("")}
+                        })
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -1277,7 +1371,7 @@ function companyTable(companies) {
         <div class="table-wrap">
             <table class="w-full text-left">
                 <thead>
-                    <tr class="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500">
                         <th class="px-6 py-4">Company</th>
                         <th class="px-6 py-4">Plan</th>
                         <th class="px-6 py-4">Status</th>
@@ -1285,13 +1379,14 @@ function companyTable(companies) {
                         <th class="px-6 py-4">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5">
-                    ${companies.map((company) => {
-        const used = userCount(company.id);
-        return `
-                            <tr class="hover:bg-white/5 transition-colors">
+                <tbody class="divide-y divide-slate-100">
+                    ${companies
+                        .map((company) => {
+                            const used = userCount(company.id);
+                            return `
+                            <tr class="hover:bg-slate-50 transition-colors">
                                 <td class="px-6 py-4">
-                                    <div class="font-bold text-slate-200">${escapeHtml(company.companyName)}</div>
+                                    <div class="font-bold text-slate-800">${escapeHtml(company.companyName)}</div>
                                     <div class="text-[10px] text-slate-500 font-medium">${escapeHtml(company.id)}</div>
                                 </td>
                                 <td class="px-6 py-4">${badge(planName(company.plan), "info")}</td>
@@ -1301,14 +1396,15 @@ function companyTable(companies) {
                                         <span>${used} / ${company.maxUsers}</span>
                                         <span>${percent(used, company.maxUsers)}%</span>
                                     </div>
-                                    <div class="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-1.5 w-full bg-slate-100/50 rounded-full overflow-hidden">
                                         <div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500" style="width: ${percent(used, company.maxUsers)}%"></div>
                                     </div>
                                 </td>
                                 <td class="px-6 py-4">${recordActions("companies", company.id)}</td>
                             </tr>
                         `;
-    }).join("")}
+                        })
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -1321,7 +1417,7 @@ function userTable(users) {
         <div class="table-wrap">
             <table class="w-full text-left">
                 <thead>
-                    <tr class="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500">
                         <th class="px-6 py-4">User</th>
                         <th class="px-6 py-4">Company</th>
                         <th class="px-6 py-4">Role</th>
@@ -1329,19 +1425,23 @@ function userTable(users) {
                         <th class="px-6 py-4">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5">
-                    ${users.map((user) => `
-                        <tr class="hover:bg-white/5 transition-colors">
+                <tbody class="divide-y divide-slate-100">
+                    ${users
+                        .map(
+                            (user) => `
+                        <tr class="hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4">
-                                <div class="font-bold text-slate-200">${escapeHtml(user.name)}</div>
+                                <div class="font-bold text-slate-800">${escapeHtml(user.name)}</div>
                                 <div class="text-[10px] text-slate-500 font-medium">${escapeHtml(user.email)}</div>
                             </td>
-                            <td class="px-6 py-4 text-xs font-medium text-slate-400">${escapeHtml(companyName(user.companyId))}</td>
+                            <td class="px-6 py-4 text-xs font-medium text-slate-500">${escapeHtml(companyName(user.companyId))}</td>
                             <td class="px-6 py-4">${badge(ROLE_DEFINITIONS[user.role]?.label || user.role, "info")}</td>
                             <td class="px-6 py-4">${badge(user.status || "active", statusTone(user.status))}</td>
                             <td class="px-6 py-4">${recordActions("users", user.id)}</td>
                         </tr>
-                    `).join("")}
+                    `
+                        )
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -1354,18 +1454,20 @@ function subscriptionTable(subscriptions) {
         <div class="table-wrap">
             <table class="w-full text-left">
                 <thead>
-                    <tr class="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500">
                         <th class="px-6 py-4">Customer</th>
                         <th class="px-6 py-4">Plan</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-white/5">
-                    ${subscriptions.map((sub) => `
-                        <tr class="hover:bg-white/5 transition-colors">
+                <tbody class="divide-y divide-slate-100">
+                    ${subscriptions
+                        .map(
+                            (sub) => `
+                        <tr class="hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4">
-                                <div class="font-bold text-slate-200">${escapeHtml(sub.customerName)}</div>
+                                <div class="font-bold text-slate-800">${escapeHtml(sub.customerName)}</div>
                                 <div class="text-[10px] text-slate-500 font-medium">${escapeHtml(sub.customerEmail)}</div>
                             </td>
                             <td class="px-6 py-4">
@@ -1380,13 +1482,15 @@ function subscriptionTable(subscriptions) {
                                 <div class="flex gap-2">
                                     ${recordActionButton("view", "subscriptions", sub.id, "fa-eye", "View")}
                                     ${recordActionButton("edit", "subscriptions", sub.id, "fa-pen", "Edit")}
-                                    <button class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-blue-500/20 hover:text-blue-400 transition-all" data-sub-action="upgrade" data-plan="enterprise" data-sub-id="${sub.id}" title="Upgrade"><i class="fas fa-arrow-up text-xs"></i></button>
-                                    <button class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-amber-500/20 hover:text-amber-400 transition-all" data-sub-action="suspend" data-sub-id="${sub.id}" title="Suspend"><i class="fas fa-ban text-xs"></i></button>
+                                    <button class="w-8 h-8 rounded-lg bg-slate-100/50 flex items-center justify-center hover:bg-blue-500/20 hover:text-blue-400 transition-all" data-sub-action="upgrade" data-plan="enterprise" data-sub-id="${sub.id}" title="Upgrade"><i class="fas fa-arrow-up text-xs"></i></button>
+                                    <button class="w-8 h-8 rounded-lg bg-slate-100/50 flex items-center justify-center hover:bg-amber-500/20 hover:text-amber-400 transition-all" data-sub-action="suspend" data-sub-id="${sub.id}" title="Suspend"><i class="fas fa-ban text-xs"></i></button>
                                     ${recordActionButton("delete", "subscriptions", sub.id, "fa-trash", "Delete", true)}
                                 </div>
                             </td>
                         </tr>
-                    `).join("")}
+                    `
+                        )
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -1406,7 +1510,7 @@ function recordActions(collectionName, id) {
 function recordActionButton(action, collectionName, id, icon, title, danger = false) {
     const style = danger
         ? "bg-red-500/10 text-red-500 hover:bg-red-500/20"
-        : "bg-white/5 hover:bg-blue-500/20 hover:text-blue-400";
+        : "bg-slate-100/50 hover:bg-blue-500/20 hover:text-blue-400";
     return `
         <button class="w-8 h-8 rounded-lg ${style} flex items-center justify-center transition-all"
             data-record-action="${action}"
@@ -1418,47 +1522,31 @@ function recordActionButton(action, collectionName, id, icon, title, danger = fa
     `;
 }
 
-function activityTable(logs) {
-    if (!logs.length) return empty("No activity logs yet.");
-    return `
-        <div class="table-wrap">
-            <table class="w-full text-left">
-                <thead>
-                    <tr class="border-b border-white/5 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                        <th class="px-6 py-4">Action</th>
-                        <th class="px-6 py-4">When</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-white/5 text-xs">
-                    ${logs.map((log) => `
-                        <tr class="hover:bg-white/5 transition-colors">
-                            <td class="px-6 py-4">
-                                <div class="font-bold text-slate-300">${log.action.replace(/_/g, ' ')}</div>
-                                <div class="text-[10px] text-slate-500 font-medium uppercase">${log.entityType}</div>
-                            </td>
-                            <td class="px-6 py-4 text-slate-500">${formatDateTime(log.createdAt)}</td>
-                        </tr>
-                    `).join("")}
-                </tbody>
-            </table>
-        </div>
-    `;
-}
-
 function companyUsageList() {
     if (!state.companies.length) return empty("No usage data yet.");
-    return `<div class="domain-strip">${state.companies.map((company) => {
-        const used = userCount(company.id);
-        return `
-            <div>
-                <div class="domain-item">
-                    <strong>${escapeHtml(company.companyName)}</strong>
-                    <span>${used}/${company.maxUsers} users</span>
+    return `<div class="grid gap-4">${state.companies
+        .map((company) => {
+            const used = userCount(company.id);
+            const p = percent(used, company.maxUsers);
+            const colorClass =
+                p > 90
+                    ? "from-rose-500 to-pink-500"
+                    : p > 70
+                      ? "from-amber-400 to-orange-500"
+                      : "from-blue-500 to-indigo-500";
+            return `
+            <div class="p-4 rounded-2xl bg-white border border-slate-100 hover:shadow-md hover:border-slate-200 transition-all">
+                <div class="flex justify-between items-center mb-3">
+                    <strong class="text-sm font-black text-slate-800">${escapeHtml(company.companyName)}</strong>
+                    <span class="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md">${used}/${company.maxUsers} users</span>
                 </div>
-                <div class="progress"><span style="--value:${percent(used, company.maxUsers)}%"></span></div>
+                <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div class="h-full bg-gradient-to-r ${colorClass} transition-all duration-500" style="width: ${p}%"></div>
+                </div>
             </div>
         `;
-    }).join("")}</div>`;
+        })
+        .join("")}</div>`;
 }
 
 function planCard(plan) {
@@ -1479,23 +1567,23 @@ function planCard(plan) {
 
 function metric(label, value, icon, color = "blue") {
     const colors = {
-        blue: "from-blue-600 to-indigo-600 shadow-blue-500/20 text-blue-500",
-        emerald: "from-emerald-500 to-teal-500 shadow-emerald-500/20 text-emerald-500",
-        amber: "from-amber-400 to-orange-500 shadow-amber-500/20 text-amber-500",
-        indigo: "from-indigo-600 to-violet-600 shadow-indigo-500/20 text-indigo-500",
-        rose: "from-rose-500 to-pink-500 shadow-rose-500/20 text-rose-500"
+        blue: "from-blue-500 to-indigo-500 shadow-blue-500/20 text-blue-50",
+        emerald: "from-emerald-400 to-teal-500 shadow-emerald-500/20 text-emerald-50",
+        amber: "from-amber-400 to-orange-400 shadow-amber-500/20 text-amber-50",
+        indigo: "from-indigo-500 to-violet-500 shadow-indigo-500/20 text-indigo-50",
+        rose: "from-rose-400 to-pink-500 shadow-rose-500/20 text-rose-50"
     };
 
     const selected = colors[color] || colors.blue;
 
     return `
-        <div class="panel glass-card p-6 flex items-center gap-6 group hover-lift transition-all">
-            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br ${selected.split(" ").slice(0, 2).join(" ")} flex items-center justify-center text-white text-xl shadow-lg ${selected.split(" ")[2]} group-hover:scale-110 transition-transform">
+        <div class="bg-white border border-slate-100 rounded-3xl p-6 flex items-center gap-6 group hover:-translate-y-1 hover:shadow-2xl hover:shadow-slate-200/50 transition-all duration-300 relative overflow-hidden">
+            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br ${selected.split(" ").slice(0, 2).join(" ")} flex items-center justify-center text-slate-900 text-xl shadow-lg ${selected.split(" ")[2]} group-hover:scale-110 transition-transform">
                 <i class="fas ${icon}"></i>
             </div>
             <div>
                 <div class="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">${label}</div>
-                <div class="text-3xl font-black text-white">${value}</div>
+                <div class="text-3xl font-black text-slate-900">${value}</div>
             </div>
         </div>
     `;
@@ -1503,7 +1591,7 @@ function metric(label, value, icon, color = "blue") {
 
 function domainItem(title, value) {
     return `
-        <div class="p-4 rounded-xl bg-white/5 border border-white/5 flex justify-between items-center group hover:bg-white/10 transition-all">
+        <div class="p-4 rounded-xl bg-slate-100/50 border border-slate-200 flex justify-between items-center group hover:bg-white/10 transition-all">
             <strong class="text-sm font-bold">${escapeHtml(title)}</strong>
             <span class="text-xs text-slate-500 font-medium">${escapeHtml(value)}</span>
         </div>
@@ -1516,7 +1604,7 @@ function badge(text, tone = "soft") {
         warning: "bg-amber-500/10 text-amber-400 border-amber-500/20",
         danger: "bg-rose-500/10 text-rose-400 border-rose-500/20",
         info: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-        soft: "bg-slate-500/10 text-slate-400 border-slate-500/20"
+        soft: "bg-slate-500/10 text-slate-500 border-slate-500/20"
     };
 
     const cls = tones[tone] || tones.soft;
@@ -1524,13 +1612,15 @@ function badge(text, tone = "soft") {
 }
 
 function empty(message) {
-    return `<div class="empty">${escapeHtml(message)}</div>`;
+    return `<div class="flex flex-col items-center justify-center p-12 text-slate-400 text-sm font-bold border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50 m-6"><i class="fas fa-folder-open text-4xl mb-4 text-slate-300"></i>${escapeHtml(message)}</div>`;
 }
 
 function statusTone(status = "") {
     if (["active", "accepted", "payment_received", "owner_confirmed", "completed"].includes(status)) return "success";
-    if (["trialing", "grace", "invited", "pending", "pending_payment", "not_started"].includes(status)) return "warning";
-    if (["suspended", "cancelled", "expired", "past_due", "disabled", "halted", "payment_failed"].includes(status)) return "danger";
+    if (["trialing", "grace", "invited", "pending", "pending_payment", "not_started"].includes(status))
+        return "warning";
+    if (["suspended", "cancelled", "expired", "past_due", "disabled", "halted", "payment_failed"].includes(status))
+        return "danger";
     return "soft";
 }
 
@@ -1547,7 +1637,12 @@ function selectedCompany() {
 }
 
 function selectedSubscription(company) {
-    return state.session?.subscription || state.subscriptions.find((sub) => sub.id === company?.subscriptionId) || state.subscriptions[0] || null;
+    return (
+        state.session?.subscription ||
+        state.subscriptions.find((sub) => sub.id === company?.subscriptionId) ||
+        state.subscriptions[0] ||
+        null
+    );
 }
 
 function planName(planId) {
@@ -1564,6 +1659,7 @@ function primaryActionLabel() {
     if (state.view === "users") return "Invite User";
     if (state.view === "roles") return "Assign Role";
     if (state.view === "subscriptions") return "Create Plan";
+    if (state.view === "emails") return "Add Email";
     return "New Record";
 }
 
@@ -1574,3 +1670,227 @@ window.NextGenAccess = {
     canAccessModule,
     getCompanyUsers
 };
+
+function showCompanyModal() {
+    const availableSubscriptions = state.subscriptions.filter(
+        (sub) => !sub.companyId && ["active", "trialing", "grace"].includes(sub.status)
+    );
+    openModal({
+        title: "Create Company Workspace",
+        submitLabel: "Provision Workspace",
+        content: `
+            <div class="grid gap-1.5">
+                <label for="companySubscription" class="text-sm font-bold text-slate-700">Subscription</label>
+                <select id="companySubscription" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+                    <option value="">No subscription (manual / free)</option>
+                    ${availableSubscriptions.map((sub) => `<option value="${sub.id}">${escapeHtml(sub.customerName)} - ${planName(sub.plan)}</option>`).join("")}
+                </select>
+            </div>
+            <div class="grid gap-1.5">
+                <label for="companyName" class="text-sm font-bold text-slate-700">Company Name</label>
+                <input id="companyName" required placeholder="e.g. Udaan Talent Partners" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+            <div class="grid gap-1.5">
+                <label for="companySubdomain" class="text-sm font-bold text-slate-700">Client ID / Subdomain</label>
+                <input id="companySubdomain" required placeholder="e.g. udaan-talent" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+            <div class="grid gap-1.5">
+                <label for="ownerId" class="text-sm font-bold text-slate-700">Firebase Auth UID</label>
+                <input id="ownerId" required placeholder="UID for the customer login you created" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+            <div class="grid gap-1.5">
+                <label for="ownerName" class="text-sm font-bold text-slate-700">Owner Name</label>
+                <input id="ownerName" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+            <div class="grid gap-1.5">
+                <label for="ownerEmail" class="text-sm font-bold text-slate-700">Owner Email</label>
+                <input id="ownerEmail" type="email" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+        `,
+            onSubmit: async (e, form, close) => {
+            const sel = document.getElementById("companySubscription").value;
+            let subscription = null;
+            if (sel) subscription = await getRecord("subscriptions", sel);
+            // If no subscription selected, fall back to starter plan for manual provisioning
+            if (!subscription) {
+                subscription = { id: `manual-${Date.now()}`, plan: PLAN_CATALOG.starter.id, customLimits: {} };
+            }
+            const companySubdomain = getClientId(document.getElementById("companySubdomain").value);
+            if (!companySubdomain) {
+                toast("Enter a valid client ID / subdomain.", true);
+                return;
+            }
+            await createCompanyWorkspace(subscription, {
+                companyId: companySubdomain,
+                companyName: document.getElementById("companyName").value.trim(),
+                ownerId: document.getElementById("ownerId").value.trim(),
+                ownerName: document.getElementById("ownerName").value.trim(),
+                ownerEmail: document.getElementById("ownerEmail").value.trim()
+            });
+            await loadData();
+            renderShell();
+            toast("Company workspace provisioned.");
+            close();
+        }
+    });
+
+    // Auto-fill subdomain logic inside modal
+    setTimeout(() => {
+        const cName = document.getElementById("companyName");
+        const cSub = document.getElementById("companySubdomain");
+        if (cName && cSub) {
+            cName.addEventListener("input", () => {
+                if (!cSub.value || cSub.value === getClientId(cName.value.slice(0, -1))) {
+                    cSub.value = getClientId(cName.value);
+                }
+            });
+        }
+    }, 100);
+}
+
+function showUserModal() {
+    openModal({
+        title: "Invite User",
+        submitLabel: "Create Login Profile",
+        content: `
+            <div class="grid gap-1.5">
+                <label for="userCompany" class="text-sm font-bold text-slate-700">Company</label>
+                <select id="userCompany" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+                    <option value="">Select company</option>
+                    ${state.companies.map((company) => `<option value="${company.id}">${escapeHtml(company.companyName)} - ${userCount(company.id)}/${company.maxUsers}</option>`).join("")}
+                </select>
+            </div>
+            <div class="grid gap-1.5">
+                <label for="inviteName" class="text-sm font-bold text-slate-700">User Name</label>
+                <input id="inviteName" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+            <div class="grid gap-1.5">
+                <label for="inviteUid" class="text-sm font-bold text-slate-700">Firebase Auth UID</label>
+                <input id="inviteUid" required placeholder="UID for the login you created" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+            <div class="grid gap-1.5">
+                <label for="inviteEmail" class="text-sm font-bold text-slate-700">Email</label>
+                <input id="inviteEmail" type="email" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+            </div>
+            <div class="grid gap-1.5">
+                <label for="inviteRole" class="text-sm font-bold text-slate-700">Role</label>
+                <select id="inviteRole" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+                    ${Object.values(ROLE_DEFINITIONS)
+                        .map((role) => `<option value="${role.id}">${role.label}</option>`)
+                        .join("")}
+                </select>
+            </div>
+        `,
+        onSubmit: async (e, form, close) => {
+            const company = state.companies.find((item) => item.id === document.getElementById("userCompany").value);
+            const subscription = selectedSubscription(company);
+            const activeUserCount = userCount(company.id);
+            const check = canAddUser(company, subscription, activeUserCount);
+            if (!check.allowed) {
+                toast(check.reason, true);
+                return;
+            }
+
+            await inviteUser({
+                company,
+                subscription,
+                activeUserCount,
+                userId: document.getElementById("inviteUid").value.trim(),
+                name: document.getElementById("inviteName").value.trim(),
+                email: document.getElementById("inviteEmail").value.trim(),
+                role: document.getElementById("inviteRole").value
+            });
+            await loadData();
+            renderShell();
+            toast("Customer login profile created.");
+            close();
+        }
+    });
+}
+
+function showSubscriptionModal() {
+    openModal({
+        title: "Create Subscription",
+        submitLabel: "Create Subscription",
+        content: `
+            <div class="grid gap-1.5"><label for="customerName" class="text-sm font-bold text-slate-700">Customer Name</label><input id="customerName" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all"></div>
+            <div class="grid gap-1.5"><label for="customerEmail" class="text-sm font-bold text-slate-700">Customer Email</label><input id="customerEmail" type="email" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all"></div>
+            <div class="grid gap-1.5">
+                <label for="plan" class="text-sm font-bold text-slate-700">Plan</label>
+                <select id="plan" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+                    ${Object.values(PLAN_CATALOG)
+                        .map((plan) => `<option value="${plan.id}">${plan.name}</option>`)
+                        .join("")}
+                </select>
+            </div>
+            <div class="grid gap-1.5"><label for="customMaxUsers" class="text-sm font-bold text-slate-700">Custom Max Users</label><input id="customMaxUsers" type="number" min="1" placeholder="Only for Custom" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all"></div>
+            <div class="grid gap-1.5"><label for="customPrice" class="text-sm font-bold text-slate-700">Custom Price Monthly</label><input id="customPrice" type="number" min="0" placeholder="Only for Custom" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all"></div>
+            <div class="grid gap-1.5">
+                <label for="status" class="text-sm font-bold text-slate-700">Status</label>
+                <select id="status" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+                    <option value="trialing">Trialing</option>
+                    <option value="active">Active</option>
+                    <option value="grace">Grace</option>
+                    <option value="past_due">Past due</option>
+                    <option value="suspended">Suspended</option>
+                </select>
+            </div>
+        `,
+        onSubmit: async (e, form, close) => {
+            const payload = {
+                customerName: document.getElementById("customerName").value.trim(),
+                customerEmail: document.getElementById("customerEmail").value.trim(),
+                plan: document.getElementById("plan").value,
+                maxUsers: document.getElementById("customMaxUsers").value,
+                priceMonthly: document.getElementById("customPrice").value,
+                status: document.getElementById("status").value
+            };
+            await createSubscription(payload);
+            await loadData();
+            renderShell();
+            toast("Subscription created.");
+            close();
+        }
+    });
+}
+
+function showRoleModal() {
+    openModal({
+        title: "Assign Member Role",
+        submitLabel: "Update Permissions",
+        content: `
+            <div class="grid gap-1.5">
+                <label class="text-sm font-bold text-slate-700">Select User</label>
+                <select id="roleUser" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all" required>
+                    <option value="">Select a member...</option>
+                    ${state.users.map((user) => `<option value="${user.id}">${escapeHtml(user.name)} (${escapeHtml(user.email)})</option>`).join("")}
+                </select>
+            </div>
+            <div class="grid gap-1.5 mt-2">
+                <label class="text-sm font-bold text-slate-700">Target Role</label>
+                <div class="grid grid-cols-2 gap-3">
+                    ${Object.values(ROLE_DEFINITIONS)
+                        .map(
+                            (role) => `
+                        <label class="relative flex flex-col p-4 rounded-xl border border-slate-200 bg-white cursor-pointer hover:border-pink-300 hover:shadow-md transition-all">
+                            <input type="radio" name="roleValue" value="${role.id}" class="sr-only" required>
+                            <span class="text-sm font-bold text-slate-800">${role.label}</span>
+                            <span class="text-[10px] text-slate-500 font-medium">${role.permissions.length} perms</span>
+                        </label>
+                    `
+                        )
+                        .join("")}
+                </div>
+            </div>
+        `,
+        onSubmit: async (e, form, close) => {
+            const userId = document.getElementById("roleUser").value;
+            const role = document.querySelector('input[name="roleValue"]:checked').value;
+            await assignRole(userId, role);
+            await loadData();
+            renderShell();
+            toast("Role assigned.");
+            close();
+        }
+    });
+}

@@ -81,7 +81,6 @@ export async function loadAccessSession(firebaseUser) {
         ownerOnly: true,
         blockedReason: `This private control panel is restricted to ${OWNER_EMAIL_LABEL}.`
     };
-
 }
 
 async function safeGetRecord(path, id) {
