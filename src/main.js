@@ -511,22 +511,35 @@ function renderUsers() {
         </div>
     `;
 }
-
 function renderRoles() {
     const roles = Object.values(ROLE_DEFINITIONS);
     const permissions = Object.values(PERMISSIONS);
 
+    // Calculate metrics
+    const totalRoles = roles.length;
+    const totalPermissions = permissions.length;
+    const assignedUsers = state.users.filter((u) => u.role).length;
+    const ownersAndAdmins = state.users.filter((u) => u.role === "owner" || u.role === "admin").length;
+
     return `
         <div class="space-y-8 animate-fade-in">
+            <!-- Roles & Permissions Stat Cards -->
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                ${metric("System Roles", totalRoles, "fa-user-lock", "indigo")}
+                ${metric("Ecosystem Scopes", totalPermissions, "fa-key", "blue")}
+                ${metric("Assigned Users", assignedUsers, "fa-users-gear", "emerald")}
+                ${metric("Superusers", ownersAndAdmins, "fa-user-shield", "rose")}
+            </section>
+
             <!-- RBAC Matrix -->
-            <div class="panel glass-card overflow-hidden">
-                <div class="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-100/50">
+            <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-3xl shadow-lg shadow-slate-200/40 overflow-hidden">
+                <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                     <div>
-                        <h3 class="text-lg font-bold">Permission Matrix</h3>
-                        <p class="text-xs text-slate-500">Cross-role capability mapping for the Nextgen Ecosystem</p>
+                        <h3 class="text-lg font-black text-slate-800">Ecosystem Permission Matrix</h3>
+                        <p class="text-xs text-slate-500 font-medium">Cross-role capability mapping for the Nextgen Access & SaaS Suites</p>
                     </div>
                     <div class="flex gap-2">
-                        ${roles.map((r) => badge(r.label, "soft")).join("")}
+                        ${roles.map((r) => badge(r.label, "info")).join("")}
                     </div>
                 </div>
                 <div class="table-wrap overflow-x-auto">
@@ -539,90 +552,100 @@ function renderRoles() {
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             ${permissions
-            .map(
-                (perm) => `
+                                .map(
+                                    (perm) => `
                                 <tr class="hover:bg-slate-50 transition-colors">
                                     <td class="px-6 py-4">
                                         <div class="font-bold text-slate-800">${perm.replace(/_/g, " ")}</div>
-                                        <div class="text-[10px] text-slate-500 font-medium uppercase">Capability</div>
+                                        <div class="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Module Capability</div>
                                     </td>
                                     ${roles
-                        .map((role) => {
-                            const has =
-                                role.permissions.includes(perm) ||
-                                role.permissions.includes("full_access");
-                            return `
+                                        .map((role) => {
+                                            const has =
+                                                role.permissions.includes(perm) ||
+                                                role.permissions.includes("full_access");
+                                            return `
                                             <td class="px-6 py-4 text-center">
                                                 <div class="flex justify-center">
-                                                    <div class="w-6 h-6 rounded-md flex items-center justify-center ${has ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-700"}">
+                                                    <div class="w-7 h-7 rounded-lg flex items-center justify-center ${
+                                                        has
+                                                            ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                                                            : "bg-slate-100 text-slate-300"
+                                                    }">
                                                         <i class="fas ${has ? "fa-check" : "fa-minus text-[10px]"}"></i>
                                                     </div>
                                                 </div>
                                             </td>
                                         `;
-                        })
-                        .join("")}
+                                        })
+                                        .join("")}
                                 </tr>
                             `
-            )
-            .join("")}
+                                )
+                                .join("")}
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <div class="grid two gap-8">
+            <!-- Lower Action Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-8 items-start">
                 <!-- Role Assignment -->
-                <div class="panel glass-card">
-                    <div class="p-6 border-b border-slate-200">
-                        <h3 class="text-lg font-bold">Assign Member Role</h3>
-                        <p class="text-xs text-slate-500">Update permissions for a specific user profile</p>
+                <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-3xl p-6 shadow-lg shadow-slate-200/40">
+                    <div class="border-b border-slate-100 pb-4 mb-5">
+                        <h3 class="text-lg font-black text-slate-800">Assign Member Role</h3>
+                        <p class="text-slate-500 text-sm font-medium">Instantly change dynamic authorization groups and RBAC profiles</p>
                     </div>
-                    <div class="p-6">
-                        <form id="roleForm" class="space-y-6">
-                            <div class="space-y-2">
-                                <label class="text-xs font-bold text-slate-500 uppercase tracking-widest">Select User</label>
-                                <select id="roleUser" class="theme-input" required>
-                                    <option value="">Select a member...</option>
-                                    ${state.users.map((user) => `<option value="${user.id}">${escapeHtml(user.name)} (${escapeHtml(user.email)})</option>`).join("")}
-                                </select>
+                    
+                    <form id="roleForm" class="space-y-6">
+                        <div class="grid gap-1.5">
+                            <label class="text-xs font-black text-slate-500 uppercase tracking-widest">Select User</label>
+                            <select id="roleUser" class="w-full min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all text-sm" required>
+                                <option value="">Select a member...</option>
+                                ${state.users.map((user) => `<option value="${user.id}">${escapeHtml(user.name)} (${escapeHtml(user.email)})</option>`).join("")}
+                            </select>
+                            <div id="roleCurrentRoleContainer" class="hidden text-xs font-semibold text-slate-500 mt-1.5 flex items-center gap-1.5">
+                                <span>Current Role:</span>
+                                <span id="roleCurrentRoleBadge"></span>
                             </div>
-                            <div class="space-y-2">
-                                <label class="text-xs font-bold text-slate-500 uppercase tracking-widest">Target Role</label>
-                                <div class="grid grid-cols-2 gap-3">
-                                    ${roles
-            .map(
-                (role) => `
-                                        <label class="relative flex flex-col p-4 rounded-xl border border-slate-200 bg-slate-100/50 cursor-pointer hover:bg-white/10 transition-all">
-                                            <input type="radio" name="roleValue" value="${role.id}" class="sr-only" required>
-                                            <span class="text-sm font-bold text-slate-800">${role.label}</span>
-                                            <span class="text-[10px] text-slate-500 font-medium">${role.permissions.length} perms</span>
-                                        </label>
-                                    `
-            )
-            .join("")}
-                                </div>
+                        </div>
+
+                        <div class="grid gap-1.5">
+                            <label class="text-xs font-black text-slate-500 uppercase tracking-widest">Target Role</label>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                ${roles
+                                    .map(
+                                        (role) => `
+                                    <label class="relative flex flex-col p-4 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer hover:border-pink-300 hover:bg-white hover:shadow-md transition-all has-[:checked]:border-pink-500 has-[:checked]:bg-white has-[:checked]:ring-4 has-[:checked]:ring-pink-500/10">
+                                        <input type="radio" name="roleValue" value="${role.id}" class="sr-only" required>
+                                        <span class="text-sm font-bold text-slate-800">${role.label}</span>
+                                        <span class="text-[10px] text-slate-500 font-medium mt-1">${role.permissions.length} Ecosystem permissions</span>
+                                    </label>
+                                `
+                                    )
+                                    .join("")}
                             </div>
-                            <button class="btn btn-primary w-full shimmer" type="submit">
-                                <i class="fas fa-user-shield mr-2"></i> Update Permissions
-                            </button>
-                        </form>
-                    </div>
+                        </div>
+
+                        <button class="w-full inline-flex items-center justify-center gap-2 px-5 py-3 font-bold rounded-xl bg-gradient-to-r from-blue-600 to-pink-500 text-slate-900 hover:scale-[1.02] hover:shadow-lg hover:shadow-pink-500/25 transition-all" type="submit">
+                            <i class="fas fa-user-shield"></i> Update Permissions
+                        </button>
+                    </form>
                 </div>
 
-                <!-- Role Summary -->
-                <div class="panel glass-card p-8 flex flex-col justify-center items-center text-center space-y-4">
-                    <div class="w-16 h-16 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400 text-2xl">
+                <!-- Unified Identity Info -->
+                <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-3xl p-8 flex flex-col justify-center items-center text-center space-y-5 shadow-lg shadow-slate-200/40">
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-slate-900 text-2xl shadow-lg shadow-blue-500/20">
                         <i class="fas fa-fingerprint"></i>
                     </div>
                     <div>
-                        <h3 class="text-xl font-bold">Unified Identity</h3>
-                        <p class="text-sm text-slate-500 max-w-[280px]">Nextgen RBAC ensures that a user's role in the Access Portal is instantly recognized across all ecosystem applications.</p>
+                        <h3 class="text-xl font-black text-slate-800 mb-2">Unified Identity Suite</h3>
+                        <p class="text-sm text-slate-500 leading-relaxed">Nextgen RBAC permissions propagate instantly. A role assigned in this Access Portal modifies tenant capability checks in real-time across the entire SaaS workspace.</p>
                     </div>
-                    <div class="domain-strip w-full">
-                        ${domainItem("Isolation", "Tenant-level")}
-                        ${domainItem("Sync", "Real-time")}
-                        ${domainItem("Engine", "Firestore-Native")}
+                    <div class="w-full space-y-3.5 mt-2">
+                        ${domainItem("Data Isolation", "Strict Tenant-Level")}
+                        ${domainItem("Synchronization", "Real-time Firestore Streams")}
+                        ${domainItem("Security Engine", "Ecosystem RBAC Helpers")}
                     </div>
                 </div>
             </div>
@@ -911,6 +934,26 @@ function bindViewEvents() {
         renderShell();
     });
 
+    // Roles View Interactions
+    document.getElementById("roleUser")?.addEventListener("change", (event) => {
+        const userId = event.target.value;
+        const container = document.getElementById("roleCurrentRoleContainer");
+        const badgeSpan = document.getElementById("roleCurrentRoleBadge");
+        if (userId && container && badgeSpan) {
+            const user = state.users.find((u) => u.id === userId);
+            if (user) {
+                const roleLabel = ROLE_DEFINITIONS[user.role]?.label || user.role || "None";
+                badgeSpan.innerHTML = badge(roleLabel, "info");
+                container.classList.remove("hidden");
+            } else {
+                container.classList.add("hidden");
+            }
+        } else if (container) {
+            container.classList.add("hidden");
+        }
+    });
+    document.getElementById("roleForm")?.addEventListener("submit", handleAssignRole);
+
     const companyNameInput = document.getElementById("companyName");
     const companySubdomainInput = document.getElementById("companySubdomain");
     if (companyNameInput && companySubdomainInput && !companySubdomainInput.value) {
@@ -1113,11 +1156,16 @@ async function handleProvisionRequest(requestId) {
 async function handleAssignRole(event) {
     event.preventDefault();
     const userId = document.getElementById("roleUser").value;
-    const role = document.getElementById("roleValue").value;
+    const roleInput = document.querySelector('#roleForm input[name="roleValue"]:checked');
+    if (!userId || !roleInput) {
+        toast("Please select a user and a target role.", true);
+        return;
+    }
+    const role = roleInput.value;
     await assignRole(userId, role);
     await loadData();
     renderShell();
-    toast("Role assigned.");
+    toast("Role assigned successfully.");
 }
 
 async function handleSubscriptionAction(button) {
@@ -1956,10 +2004,10 @@ function showRoleModal() {
                     ${Object.values(ROLE_DEFINITIONS)
                 .map(
                     (role) => `
-                        <label class="relative flex flex-col p-4 rounded-xl border border-slate-200 bg-white cursor-pointer hover:border-pink-300 hover:shadow-md transition-all">
+                        <label class="relative flex flex-col p-4 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer hover:border-pink-300 hover:bg-white hover:shadow-md transition-all has-[:checked]:border-pink-500 has-[:checked]:bg-white has-[:checked]:ring-4 has-[:checked]:ring-pink-500/10">
                             <input type="radio" name="roleValue" value="${role.id}" class="sr-only" required>
                             <span class="text-sm font-bold text-slate-800">${role.label}</span>
-                            <span class="text-[10px] text-slate-500 font-medium">${role.permissions.length} perms</span>
+                            <span class="text-[10px] text-slate-500 font-medium mt-1">${role.permissions.length} Permissions</span>
                         </label>
                     `
                 )
@@ -1973,7 +2021,7 @@ function showRoleModal() {
             await assignRole(userId, role);
             await loadData();
             renderShell();
-            toast("Role assigned.");
+            toast("Role assigned successfully.");
             close();
         }
     });
