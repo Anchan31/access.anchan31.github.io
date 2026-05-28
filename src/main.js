@@ -81,7 +81,10 @@ let state = {
     roles: [],
     permissions: [],
     emails: [],
-    emailSearch: ""
+    emailSearch: "",
+    userSearch: "",
+    userCompanyFilter: "",
+    userRoleFilter: ""
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -427,25 +430,83 @@ function renderCompanies() {
 }
 
 function renderUsers() {
+    const totalUsers = state.users.length;
+    const activeUsers = state.users.filter((u) => u.status === "active").length;
+    const pendingInvites = state.users.filter(
+        (u) => u.inviteStatus === "invited" || u.inviteStatus === "credentials_sent" || u.status === "invited"
+    ).length;
+    const adminUsers = state.users.filter((u) => u.role === "owner" || u.role === "admin").length;
+
+    // Real-time filtering logic
+    const filtered = state.users.filter((user) => {
+        const search = (state.userSearch || "").toLowerCase().trim();
+        const matchesSearch =
+            !search ||
+            (user.name && user.name.toLowerCase().includes(search)) ||
+            (user.email && user.email.toLowerCase().includes(search));
+
+        const companyFilter = state.userCompanyFilter || "";
+        const matchesCompany = !companyFilter || user.companyId === companyFilter;
+
+        const roleFilter = state.userRoleFilter || "";
+        const matchesRole = !roleFilter || user.role === roleFilter;
+
+        return matchesSearch && matchesCompany && matchesRole;
+    });
+
     return `
-        <div class="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-8 items-start">
-            <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
-                <div class="flex justify-between items-start mb-4">
-                    <div>
-                        <h3 class="text-lg font-black text-slate-800 mb-2">Invite User</h3>
-                        <p class="text-slate-500 text-sm font-medium mb-6">Create the Firebase Auth account first, then add the user profile here and send the customer their app link plus credentials.</p>
+        <div class="grid gap-8">
+            <!-- User Stat Cards -->
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                ${metric("Total Users", totalUsers, "fa-users", "blue")}
+                ${metric("Active Users", activeUsers, "fa-user-check", "emerald")}
+                ${metric("Pending Setup", pendingInvites, "fa-clock", "amber")}
+                ${metric("Admins & Owners", adminUsers, "fa-user-shield", "indigo")}
+            </section>
+
+            <!-- Main Users Panel -->
+            <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-3xl p-6 shadow-lg shadow-slate-200/40">
+                <div class="flex flex-col gap-6">
+                    <!-- Title & Header Section -->
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-100 pb-5">
+                        <div>
+                            <h3 class="text-xl font-black text-slate-800">User Records</h3>
+                            <p class="text-slate-500 text-sm font-medium">Manage member profiles, access roles, and status levels across all customer workspaces.</p>
+                        </div>
+                        <button id="btnOpenUserModalDirect" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-pink-500 text-slate-900 font-bold rounded-xl hover:shadow-lg hover:shadow-pink-500/20 hover:scale-[1.02] transition-all text-sm">
+                            <i class="fas fa-user-plus"></i> Invite User
+                        </button>
                     </div>
-                    <!-- Action available in header; removed duplicate card CTA -->
-                </div>
-            </div>
-            <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
-                <div class="flex justify-between items-start gap-4 mb-4">
-                    <div>
-                        <h3 class="text-lg font-black text-slate-800">Users</h3>
-                        <p class="text-slate-500 text-sm font-medium">${state.users.length} users across all tenants</p>
+
+                    <!-- Search & Filter Controls -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+                                <i class="fas fa-magnifying-glass text-sm"></i>
+                            </span>
+                            <input id="userSearch" type="search" placeholder="Search by name or email..." value="${escapeHtml(state.userSearch || "")}" class="w-full min-h-[42px] pl-10 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm" />
+                        </div>
+                        
+                        <div>
+                            <select id="userCompanyFilter" class="w-full min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm">
+                                <option value="">All Companies</option>
+                                ${state.companies.map((c) => `<option value="${c.id}" ${state.userCompanyFilter === c.id ? "selected" : ""}>${escapeHtml(c.companyName)}</option>`).join("")}
+                            </select>
+                        </div>
+
+                        <div>
+                            <select id="userRoleFilter" class="w-full min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm">
+                                <option value="">All Roles</option>
+                                ${Object.entries(ROLE_DEFINITIONS).map(([key, role]) => `<option value="${key}" ${state.userRoleFilter === key ? "selected" : ""}>${escapeHtml(role.label)}</option>`).join("")}
+                            </select>
+                        </div>
                     </div>
                 </div>
-                ${userTable(state.users)}
+
+                <!-- Users Table -->
+                <div class="mt-4">
+                    ${userTable(filtered)}
+                </div>
             </div>
         </div>
     `;
@@ -822,6 +883,31 @@ function bindViewEvents() {
     document.getElementById("btnAddEmail")?.addEventListener("click", () => showEmailModal());
     document.getElementById("emailSearch")?.addEventListener("input", (event) => {
         state.emailSearch = event.target.value || "";
+        renderShell();
+        const input = document.getElementById("emailSearch");
+        if (input) {
+            input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
+        }
+    });
+
+    // Users View Interactions
+    document.getElementById("btnOpenUserModalDirect")?.addEventListener("click", showUserModal);
+    document.getElementById("userSearch")?.addEventListener("input", (event) => {
+        state.userSearch = event.target.value || "";
+        renderShell();
+        const input = document.getElementById("userSearch");
+        if (input) {
+            input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
+        }
+    });
+    document.getElementById("userCompanyFilter")?.addEventListener("change", (event) => {
+        state.userCompanyFilter = event.target.value || "";
+        renderShell();
+    });
+    document.getElementById("userRoleFilter")?.addEventListener("change", (event) => {
+        state.userRoleFilter = event.target.value || "";
         renderShell();
     });
 
@@ -1402,7 +1488,8 @@ function companyTable(companies) {
 }
 
 function userTable(users) {
-    if (!users.length) return empty("No users created yet.");
+    if (!state.users.length) return empty("No users created yet.");
+    if (!users.length) return empty("No users match the active filters.");
     return `
         <div class="table-wrap">
             <table class="w-full text-left">
@@ -1421,8 +1508,15 @@ function userTable(users) {
                 (user) => `
                         <tr class="hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4">
-                                <div class="font-bold text-slate-800">${escapeHtml(user.name)}</div>
-                                <div class="text-[10px] text-slate-500 font-medium">${escapeHtml(user.email)}</div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500/10 to-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-slate-700 text-xs font-black uppercase shadow-inner">
+                                        ${escapeHtml(initials(user.name))}
+                                    </div>
+                                    <div>
+                                        <div class="font-bold text-slate-800">${escapeHtml(user.name)}</div>
+                                        <div class="text-[10px] text-slate-500 font-medium">${escapeHtml(user.email)}</div>
+                                    </div>
+                                </div>
                             </td>
                             <td class="px-6 py-4 text-xs font-medium text-slate-500">${escapeHtml(companyName(user.companyId))}</td>
                             <td class="px-6 py-4">${badge(ROLE_DEFINITIONS[user.role]?.label || user.role, "info")}</td>
