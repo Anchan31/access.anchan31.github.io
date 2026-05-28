@@ -412,7 +412,7 @@ function renderCompanies() {
         (sub) => !sub.companyId && ["active", "trialing", "grace"].includes(sub.status)
     );
     return `
-        <div class="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-8 items-start">
+        <div class="grid gap-8">
             <div class="bg-white/90 backdrop-blur-lg border border-slate-200 rounded-2xl p-6 shadow-lg shadow-slate-200/40">
                 <div class="flex justify-between items-start gap-4 mb-4">
                     <div>
