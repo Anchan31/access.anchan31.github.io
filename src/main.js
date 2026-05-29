@@ -1562,6 +1562,7 @@ function companyTable(companies) {
                         <th class="px-6 py-4">Plan</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4">Users</th>
+                        <th class="px-6 py-4">AI Credits</th>
                         <th class="px-6 py-4">Actions</th>
                     </tr>
                 </thead>
@@ -1586,6 +1587,7 @@ function companyTable(companies) {
                                         <div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500" style="width: ${percent(used, company.maxUsers)}%"></div>
                                     </div>
                                 </td>
+                                <td class="px-6 py-4"><span class="text-sm font-black text-slate-700">${Number(company.aiCreditsRemaining || 0).toLocaleString("en-IN")}</span></td>
                                 <td class="px-6 py-4">${recordActions("companies", company.id)}</td>
                             </tr>
                         `;

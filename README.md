@@ -53,8 +53,8 @@ Customer RMS:
 ## Plans
 
 - Starter: `₹1499/month`, 1 user, Recruit, Share Profile.
-- Professional: `₹2999/month`, 3 users, Recruit, Share Profile, Dialer.
-- Enterprise: `₹8999/month`, 10 users, Recruit, Share Profile, Dialer, QR Bridge Login, Advanced Analytics.
+- Professional: `₹2999/month`, 3 users, Recruit, Share Profile, Career Portal.
+- Enterprise: `₹8999/month`, 10 users, Recruit, Share Profile, Career Portal, QR Bridge Login, Advanced Analytics.
 - Custom: dynamic price, custom users, configurable feature access.
 
 ## Setup

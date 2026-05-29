@@ -18,6 +18,7 @@ export async function createCompanyWorkspace(subscription, input) {
             subscriptionId: subscription.id,
             plan: subscription.plan || PLAN_CATALOG.starter.id,
             maxUsers: limits.maxUsers,
+            aiCreditsRemaining: Number(subscription.aiCreditsRemaining || subscription.aiCreditsIncluded || 0),
             status: "active",
             features: limits.features,
             customLimits: subscription.customLimits || {}

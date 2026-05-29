@@ -14,11 +14,6 @@ export const FEATURES = {
         label: "Share Profile",
         description: "Secure candidate profile sharing with clients."
     },
-    dialer: {
-        key: "dialer",
-        label: "Dialer",
-        description: "Calling workflow and call disposition tracking."
-    },
     qrBridgeLogin: {
         key: "qrBridgeLogin",
         label: "QR Bridge Login",

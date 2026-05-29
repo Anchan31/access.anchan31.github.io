@@ -2,8 +2,7 @@ export const PERMISSIONS = {
     fullAccess: "full_access",
     app: "/app",
     share: "/share",
-    careers: "/careers",
-    dialer: "dialer"
+    careers: "/careers"
 };
 
 export const ROLE_DEFINITIONS = {
@@ -13,8 +12,7 @@ export const ROLE_DEFINITIONS = {
         permissions: [
             PERMISSIONS.app,
             PERMISSIONS.share,
-            PERMISSIONS.careers,
-            PERMISSIONS.dialer
+            PERMISSIONS.careers
         ]
     },
     recruiter: {
@@ -32,7 +30,6 @@ export const MODULE_REQUIREMENTS = {
     recruitModule: [PERMISSIONS.app],
     careerPortal: [PERMISSIONS.careers],
     shareProfile: [PERMISSIONS.share],
-    dialer: [PERMISSIONS.dialer],
     qrBridgeLogin: [PERMISSIONS.app],
     advancedAnalytics: [PERMISSIONS.app]
 };
