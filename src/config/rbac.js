@@ -9,20 +9,12 @@ export const ROLE_DEFINITIONS = {
     admin: {
         id: "admin",
         label: "Admin",
-        permissions: [
-            PERMISSIONS.app,
-            PERMISSIONS.share,
-            PERMISSIONS.careers
-        ]
+        permissions: [PERMISSIONS.app, PERMISSIONS.share, PERMISSIONS.careers]
     },
     recruiter: {
         id: "recruiter",
         label: "Recruiter",
-        permissions: [
-            PERMISSIONS.app,
-            PERMISSIONS.share,
-            PERMISSIONS.careers
-        ]
+        permissions: [PERMISSIONS.app, PERMISSIONS.share, PERMISSIONS.careers]
     }
 };
 
@@ -39,7 +31,7 @@ export let DYNAMIC_ROLES = {};
 export function registerDynamicRoles(rolesArray) {
     DYNAMIC_ROLES = {};
     if (Array.isArray(rolesArray)) {
-        rolesArray.forEach(role => {
+        rolesArray.forEach((role) => {
             const id = role.roleId || role.id;
             DYNAMIC_ROLES[id] = {
                 id: id,

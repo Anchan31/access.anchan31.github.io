@@ -9,7 +9,14 @@ import {
 } from "./services/accessControlService.js";
 import { watchAuth, login, logout, loadAccessSession } from "./services/authService.js";
 import { createCompanyWorkspace, getCompanyUsers, inviteUser, assignRole } from "./services/companyService.js";
-import { createRecord, listCollection, getRecord, updateRecord, deleteRecord } from "./services/firestoreService.js";
+import {
+    createRecord,
+    listCollection,
+    getRecord,
+    updateRecord,
+    deleteRecord,
+    listByCompany
+} from "./services/firestoreService.js";
 import {
     createSubscription,
     upgradePlan,
@@ -193,15 +200,15 @@ function renderShell() {
                 </div>
                 <nav class="grid gap-2">
                     ${Object.entries(views)
-            .map(
-                ([key, view]) => `
+                        .map(
+                            ([key, view]) => `
                         <button class="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${key === state.view ? "text-blue-600 bg-blue-50 shadow-sm shadow-blue-100" : "text-slate-500 hover:text-slate-900 hover:bg-white"}" data-view="${key}">
                             <i class="fas ${view.icon}"></i>
                             <span>${view.label}</span>
                         </button>
                     `
-            )
-            .join("")}
+                        )
+                        .join("")}
                 </nav>
                 <div class="mt-auto p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
                     <div class="flex items-center gap-3 mb-3">
@@ -326,15 +333,17 @@ function renderOverview() {
         ["active", "trialing", "grace"].includes(sub.status)
     ).length;
     const activeCompanies = state.companies.filter((company) => company.status === "active").length;
+    const totalRemainingCredits = state.companies.reduce((acc, c) => acc + Number(c.aiCreditsRemaining || 0), 0);
 
     return `
         <div class="grid gap-8">
             <!-- Hero Stats -->
-            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
                 ${metric("Paid Requests", paidRequests, "fa-receipt", "blue")}
                 ${metric("Pending Setup", pendingProvisioning, "fa-hourglass-half", "amber")}
                 ${metric("Active Subs", activeSubscriptions, "fa-credit-card", "indigo")}
                 ${metric("Companies", activeCompanies, "fa-building", "emerald")}
+                ${metric("Total AI Credits", totalRemainingCredits.toLocaleString("en-IN"), "fa-coins", "rose")}
             </section>
 
             <div class="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-8">
@@ -500,7 +509,12 @@ function renderUsers() {
                         <div>
                             <select id="userRoleFilter" class="w-full min-h-[42px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm">
                                 <option value="">All Roles</option>
-                                ${Object.entries(getAllRoles()).map(([key, role]) => `<option value="${key}" ${state.userRoleFilter === key ? "selected" : ""}>${escapeHtml(role.label)}</option>`).join("")}
+                                ${Object.entries(getAllRoles())
+                                    .map(
+                                        ([key, role]) =>
+                                            `<option value="${key}" ${state.userRoleFilter === key ? "selected" : ""}>${escapeHtml(role.label)}</option>`
+                                    )
+                                    .join("")}
                             </select>
                         </div>
                     </div>
@@ -657,12 +671,15 @@ function renderRoles() {
                             <div class="grid grid-cols-2 gap-2 mt-1">
                                 ${Object.entries(PERMISSIONS)
                                     .filter(([key]) => key !== "fullAccess")
-                                    .map(([key, value]) => `
+                                    .map(
+                                        ([key, value]) => `
                                         <label class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer hover:border-pink-300 hover:bg-white transition-all has-[:checked]:border-pink-500 has-[:checked]:bg-white has-[:checked]:ring-4 has-[:checked]:ring-pink-500/10">
                                             <input type="checkbox" name="customRolePerms" value="${value}" class="rounded text-pink-500 focus:ring-pink-500/10" />
                                             <span class="text-sm font-bold text-slate-800">${value}</span>
                                         </label>
-                                    `).join("")}
+                                    `
+                                    )
+                                    .join("")}
                             </div>
                         </div>
 
@@ -674,17 +691,22 @@ function renderRoles() {
                     <!-- Existing Custom Roles List -->
                     <div class="mt-8 border-t border-slate-100 pt-6">
                         <h4 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">Custom Roles</h4>
-                        ${Object.keys(DYNAMIC_ROLES).length === 0 ? `
+                        ${
+                            Object.keys(DYNAMIC_ROLES).length === 0
+                                ? `
                             <p class="text-xs font-medium text-slate-400 italic">No custom roles created yet.</p>
-                        ` : `
+                        `
+                                : `
                             <div class="space-y-3">
-                                ${Object.values(DYNAMIC_ROLES).map(role => `
+                                ${Object.values(DYNAMIC_ROLES)
+                                    .map(
+                                        (role) => `
                                     <div class="flex items-center justify-between p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:shadow-sm transition-all animate-fade-in">
                                         <div>
                                             <strong class="text-sm text-slate-800 font-bold">${escapeHtml(role.label)}</strong>
                                             <div class="text-[10px] text-slate-500 mt-1">${role.id}</div>
                                             <div class="flex gap-1 mt-1.5 flex-wrap">
-                                                ${role.permissions.map(p => badge(p, "soft")).join("")}
+                                                ${role.permissions.map((p) => badge(p, "soft")).join("")}
                                             </div>
                                         </div>
                                         <div class="flex gap-2">
@@ -692,9 +714,12 @@ function renderRoles() {
                                             <button class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center transition-colors" data-delete-role="${role.docId}" title="Delete role"><i class="fas fa-trash text-xs"></i></button>
                                         </div>
                                     </div>
-                                `).join("")}
+                                `
+                                    )
+                                    .join("")}
                             </div>
-                        `}
+                        `
+                        }
                     </div>
                 </div>
             </div>
@@ -776,8 +801,8 @@ function emailTable(emails) {
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                     ${emails
-            .map(
-                (email) => `
+                        .map(
+                            (email) => `
                                 <tr class="hover:bg-slate-50 transition-colors">
                                     <td class="px-6 py-4">
                                         <div class="font-bold text-slate-800">${escapeHtml(email.emailAddress)}</div>
@@ -795,8 +820,8 @@ function emailTable(emails) {
                                     <td class="px-6 py-4">${recordActions("emails", email.id)}</td>
                                 </tr>
                             `
-            )
-            .join("")}
+                        )
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -846,8 +871,8 @@ function renderModules() {
                 </div>
                 <div class="grid three">
                     ${Object.values(FEATURES)
-            .map(
-                (feature) => `
+                        .map(
+                            (feature) => `
                         <div class="panel">
                             <h3>${feature.label}</h3>
                             <p class="muted">${feature.description}</p>
@@ -855,21 +880,21 @@ function renderModules() {
                             ${badge(canAccessModule(user, company, subscription, feature.key) ? "Role allowed" : "Role blocked", canAccessModule(user, company, subscription, feature.key) ? "success" : "warning")}
                         </div>
                     `
-            )
-            .join("")}
+                        )
+                        .join("")}
                 </div>
             </section>
             <section class="panel">
                 <h3>Permission Probe</h3>
                 <p class="muted">Active user: ${escapeHtml(user?.name || "Unknown")} - role: ${escapeHtml(user?.role || "none")}</p>
                 <div>${Object.values(PERMISSIONS)
-            .map((permission) =>
-                badge(
-                    `${permission}: ${hasPermission(user, permission) ? "yes" : "no"}`,
-                    hasPermission(user, permission) ? "success" : "soft"
-                )
-            )
-            .join("")}</div>
+                    .map((permission) =>
+                        badge(
+                            `${permission}: ${hasPermission(user, permission) ? "yes" : "no"}`,
+                            hasPermission(user, permission) ? "success" : "soft"
+                        )
+                    )
+                    .join("")}</div>
             </section>
         </div>
     `;
@@ -1025,6 +1050,16 @@ function bindViewEvents() {
 
     document.querySelectorAll("[data-record-action]").forEach((button) => {
         button.addEventListener("click", () => handleRecordAction(button));
+    });
+
+    // AI Credits adjustment buttons
+    document.querySelectorAll("[data-adjust-credits]").forEach((button) => {
+        button.addEventListener("click", () => showAiCreditsModal(button.dataset.adjustCredits));
+    });
+
+    // AI Credits adjustment history buttons
+    document.querySelectorAll("[data-view-credit-logs]").forEach((button) => {
+        button.addEventListener("click", () => showAiCreditsHistoryModal(button.dataset.viewCreditLogs));
     });
 
     // Custom Roles Interactions
@@ -1514,9 +1549,9 @@ function purchaseRequestTable(requests, compact = false) {
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                     ${requests
-            .map((request) => {
-                const completed = request.provisioningStatus === "completed";
-                return `
+                        .map((request) => {
+                            const completed = request.provisioningStatus === "completed";
+                            return `
                             <tr class="hover:bg-slate-50 transition-colors">
                                 <td class="px-6 py-4">
                                     <div class="font-bold text-slate-800">${escapeHtml(request.companyName || request.buyerName || "Unknown buyer")}</div>
@@ -1531,20 +1566,21 @@ function purchaseRequestTable(requests, compact = false) {
                                     <div class="text-[10px] text-slate-500 mt-1">${formatDateTime(request.updatedAt || request.createdAt)}</div>
                                 </td>
                                 <td class="px-6 py-4">${badge(request.provisioningStatus || "idle", completed ? "success" : "warning")}</td>
-                                ${compact
-                        ? ""
-                        : `
+                                ${
+                                    compact
+                                        ? ""
+                                        : `
                                     <td class="px-6 py-4">
                                         <button class="px-4 py-2 rounded-xl bg-blue-600 text-slate-900 text-xs font-bold shadow-lg shadow-blue-500/20 hover:scale-105 transition-all disabled:opacity-50 disabled:scale-100" data-provision-request="${request.id}" ${completed ? "disabled" : ""}>
                                             Activate
                                         </button>
                                     </td>
                                 `
-                    }
+                                }
                             </tr>
                         `;
-            })
-            .join("")}
+                        })
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -1568,9 +1604,9 @@ function companyTable(companies) {
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                     ${companies
-            .map((company) => {
-                const used = userCount(company.id);
-                return `
+                        .map((company) => {
+                            const used = userCount(company.id);
+                            return `
                             <tr class="hover:bg-slate-50 transition-colors">
                                 <td class="px-6 py-4">
                                     <div class="font-bold text-slate-800">${escapeHtml(company.companyName)}</div>
@@ -1587,12 +1623,20 @@ function companyTable(companies) {
                                         <div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500" style="width: ${percent(used, company.maxUsers)}%"></div>
                                     </div>
                                 </td>
-                                <td class="px-6 py-4"><span class="text-sm font-black text-slate-700">${Number(company.aiCreditsRemaining || 0).toLocaleString("en-IN")}</span></td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-sm font-black text-slate-700">${Number(company.aiCreditsRemaining || 0).toLocaleString("en-IN")}</span>
+                                        <div class="flex gap-1">
+                                            <button class="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center transition-colors" data-adjust-credits="${company.id}" title="Adjust AI Credits"><i class="fas fa-coins text-[10px]"></i></button>
+                                            <button class="w-7 h-7 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors" data-view-credit-logs="${company.id}" title="View Credit History"><i class="fas fa-clock-rotate-left text-[10px]"></i></button>
+                                        </div>
+                                    </div>
+                                </td>
                                 <td class="px-6 py-4">${recordActions("companies", company.id)}</td>
                             </tr>
                         `;
-            })
-            .join("")}
+                        })
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -1616,8 +1660,8 @@ function userTable(users) {
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                     ${users
-            .map(
-                (user) => `
+                        .map(
+                            (user) => `
                         <tr class="hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
@@ -1636,8 +1680,8 @@ function userTable(users) {
                             <td class="px-6 py-4">${recordActions("users", user.id)}</td>
                         </tr>
                     `
-            )
-            .join("")}
+                        )
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -1653,14 +1697,15 @@ function subscriptionTable(subscriptions) {
                     <tr class="border-b border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-500">
                         <th class="px-6 py-4">Customer</th>
                         <th class="px-6 py-4">Plan</th>
+                        <th class="px-6 py-4">AI Credits</th>
                         <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                     ${subscriptions
-            .map(
-                (sub) => `
+                        .map(
+                            (sub) => `
                         <tr class="hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4">
                                 <div class="font-bold text-slate-800">${escapeHtml(sub.customerName)}</div>
@@ -1669,6 +1714,10 @@ function subscriptionTable(subscriptions) {
                             <td class="px-6 py-4">
                                 ${badge(planName(sub.plan), "info")}
                                 <div class="text-[10px] text-slate-500 mt-1">${sub.maxUsers || resolvePlanLimits(sub).maxUsers} users</div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="text-sm font-black text-slate-700">${Number(sub.aiCreditsRemaining || 0).toLocaleString("en-IN")}</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5">of ${Number(sub.aiCreditsIncluded || 0).toLocaleString("en-IN")}</div>
                             </td>
                             <td class="px-6 py-4">
                                 ${badge(sub.status || "active", statusTone(sub.status))}
@@ -1685,8 +1734,8 @@ function subscriptionTable(subscriptions) {
                             </td>
                         </tr>
                     `
-            )
-            .join("")}
+                        )
+                        .join("")}
                 </tbody>
             </table>
         </div>
@@ -1728,8 +1777,8 @@ function companyUsageList() {
                 p > 90
                     ? "from-rose-500 to-pink-500"
                     : p > 70
-                        ? "from-amber-400 to-orange-500"
-                        : "from-blue-500 to-indigo-500";
+                      ? "from-amber-400 to-orange-500"
+                      : "from-blue-500 to-indigo-500";
             return `
             <div class="p-4 rounded-2xl bg-white border border-slate-100 hover:shadow-md hover:border-slate-200 transition-all">
                 <div class="flex justify-between items-center mb-3">
@@ -1972,8 +2021,8 @@ function showUserModal() {
                 <label for="inviteRole" class="text-sm font-bold text-slate-700">Role</label>
                 <select id="inviteRole" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
                     ${Object.values(getAllRoles())
-                .map((role) => `<option value="${role.id}">${role.label}</option>`)
-                .join("")}
+                        .map((role) => `<option value="${role.id}">${role.label}</option>`)
+                        .join("")}
                 </select>
             </div>
         `,
@@ -2015,8 +2064,8 @@ function showSubscriptionModal() {
                 <label for="plan" class="text-sm font-bold text-slate-700">Plan</label>
                 <select id="plan" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
                     ${Object.values(PLAN_CATALOG)
-                .map((plan) => `<option value="${plan.id}">${plan.name}</option>`)
-                .join("")}
+                        .map((plan) => `<option value="${plan.id}">${plan.name}</option>`)
+                        .join("")}
                 </select>
             </div>
             <div class="grid gap-1.5"><label for="customMaxUsers" class="text-sm font-bold text-slate-700">Custom Max Users</label><input id="customMaxUsers" type="number" min="1" placeholder="Only for Custom" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all"></div>
@@ -2031,6 +2080,7 @@ function showSubscriptionModal() {
                     <option value="suspended">Suspended</option>
                 </select>
             </div>
+            <div class="grid gap-1.5"><label for="aiCreditsIncluded" class="text-sm font-bold text-slate-700">AI Credits Included</label><input id="aiCreditsIncluded" type="number" min="0" value="50000" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all"></div>
         `,
         onSubmit: async (e, form, close) => {
             const payload = {
@@ -2039,7 +2089,8 @@ function showSubscriptionModal() {
                 plan: document.getElementById("plan").value,
                 maxUsers: document.getElementById("customMaxUsers").value,
                 priceMonthly: document.getElementById("customPrice").value,
-                status: document.getElementById("status").value
+                status: document.getElementById("status").value,
+                aiCreditsIncluded: Number(document.getElementById("aiCreditsIncluded").value || 0)
             };
             await createSubscription(payload);
             await loadData();
@@ -2066,16 +2117,16 @@ function showRoleModal() {
                 <label class="text-sm font-bold text-slate-700">Target Role</label>
                 <div class="grid grid-cols-2 gap-3">
                     ${Object.values(getAllRoles())
-                .map(
-                    (role) => `
+                        .map(
+                            (role) => `
                         <label class="relative flex flex-col p-4 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer hover:border-pink-300 hover:bg-white hover:shadow-md transition-all has-[:checked]:border-pink-500 has-[:checked]:bg-white has-[:checked]:ring-4 has-[:checked]:ring-pink-500/10">
                             <input type="radio" name="roleValue" value="${role.id}" class="sr-only" required>
                             <span class="text-sm font-bold text-slate-800">${role.label}</span>
                             <span class="text-[10px] text-slate-500 font-medium mt-1">${role.permissions.length} Permissions</span>
                         </label>
                     `
-                )
-                .join("")}
+                        )
+                        .join("")}
                 </div>
             </div>
         `,
@@ -2095,7 +2146,7 @@ async function handleCustomRoleSubmit(event) {
     event.preventDefault();
     const label = document.getElementById("customRoleLabel").value.trim();
     const permsInputs = document.querySelectorAll('input[name="customRolePerms"]:checked');
-    const permissions = Array.from(permsInputs).map(input => input.value);
+    const permissions = Array.from(permsInputs).map((input) => input.value);
 
     if (!label) {
         toast("Role label is required.", true);
@@ -2131,22 +2182,26 @@ async function handleCustomRoleSubmit(event) {
 }
 
 function handleEditRoleClick(docId) {
-    const role = Object.values(DYNAMIC_ROLES).find(r => r.docId === docId);
+    const role = Object.values(DYNAMIC_ROLES).find((r) => r.docId === docId);
     if (role) {
         state.editingRoleId = docId;
         renderShell();
-        
+
         // Populate form fields after rendering
         document.getElementById("customRoleLabel").value = role.label;
         const perms = role.permissions;
-        document.querySelectorAll('input[name="customRolePerms"]').forEach(checkbox => {
+        document.querySelectorAll('input[name="customRolePerms"]').forEach((checkbox) => {
             checkbox.checked = perms.includes(checkbox.value);
         });
     }
 }
 
 async function handleDeleteRoleClick(docId) {
-    if (confirm("Are you sure you want to delete this custom role? Users assigned to this role may lose access permissions.")) {
+    if (
+        confirm(
+            "Are you sure you want to delete this custom role? Users assigned to this role may lose access permissions."
+        )
+    ) {
         try {
             await deleteRecord("roles", docId);
             toast("Role deleted successfully.");
@@ -2158,6 +2213,202 @@ async function handleDeleteRoleClick(docId) {
         } catch (error) {
             console.error(error);
             toast(error.message, true);
+        }
+    }
+}
+
+function showAiCreditsModal(companyId) {
+    const company = state.companies.find((c) => c.id === companyId);
+    if (!company) {
+        toast("Company not found.", true);
+        return;
+    }
+    const currentCredits = Number(company.aiCreditsRemaining || 0);
+
+    openModal({
+        title: `Adjust AI Credits — ${company.companyName}`,
+        submitLabel: "Apply Credit Change",
+        content: `
+            <div class="p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 mb-4">
+                <div class="text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-1">Current Balance</div>
+                <div class="text-3xl font-black text-indigo-700">${currentCredits.toLocaleString("en-IN")}</div>
+                <div class="text-xs text-indigo-400 font-medium mt-1">AI credits remaining</div>
+            </div>
+            <div class="grid gap-1.5">
+                <label for="creditAction" class="text-sm font-bold text-slate-700">Action</label>
+                <select id="creditAction" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
+                    <option value="add">Add Credits (Top-up)</option>
+                    <option value="set">Set to Exact Value</option>
+                    <option value="deduct">Deduct Credits</option>
+                </select>
+            </div>
+            <div class="grid gap-1.5 mt-4">
+                <label for="creditAmount" class="text-sm font-bold text-slate-700">Amount</label>
+                <input id="creditAmount" type="number" min="0" required value="10000" placeholder="Number of credits" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all" />
+            </div>
+            <div class="grid gap-1.5 mt-4">
+                <label for="creditReason" class="text-sm font-bold text-slate-700">Reason (optional)</label>
+                <input id="creditReason" type="text" placeholder="e.g. Monthly top-up, bonus credits" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all" />
+            </div>
+        `,
+        onSubmit: async (_e, _form, close) => {
+            const action = document.getElementById("creditAction").value;
+            const amount = Number(document.getElementById("creditAmount").value || 0);
+            const reason = document.getElementById("creditReason").value.trim();
+
+            if (amount < 0 || isNaN(amount)) {
+                toast("Enter a valid positive number.", true);
+                return;
+            }
+
+            let newBalance;
+            if (action === "add") {
+                newBalance = currentCredits + amount;
+            } else if (action === "set") {
+                newBalance = amount;
+            } else if (action === "deduct") {
+                newBalance = Math.max(0, currentCredits - amount);
+            }
+
+            await updateRecord("companies", companyId, {
+                aiCreditsRemaining: newBalance
+            });
+
+            // Also log the adjustment in an activity record
+            try {
+                await createRecord("activityLogs", {
+                    companyId,
+                    type: "ai_credit_adjustment",
+                    action,
+                    amount,
+                    previousBalance: currentCredits,
+                    newBalance,
+                    reason: reason || `AI credit ${action}`,
+                    performedBy: state.session.user?.email || "platform_admin",
+                    createdAt: new Date().toISOString()
+                });
+            } catch (logError) {
+                console.warn("Activity log write skipped:", logError);
+            }
+
+            // Sync subscription too if it exists
+            if (company.subscriptionId) {
+                try {
+                    await updateRecord("subscriptions", company.subscriptionId, {
+                        aiCreditsRemaining: newBalance
+                    });
+                } catch (subError) {
+                    console.warn("Subscription credit sync skipped:", subError);
+                }
+            }
+
+            await loadData();
+            renderShell();
+            toast(
+                `AI credits updated: ${currentCredits.toLocaleString("en-IN")} → ${newBalance.toLocaleString("en-IN")}`
+            );
+            close();
+        }
+    });
+}
+
+async function showAiCreditsHistoryModal(companyId) {
+    const company = state.companies.find((c) => c.id === companyId);
+    if (!company) {
+        toast("Company not found.", true);
+        return;
+    }
+
+    openModal({
+        title: `Credit History — ${company.companyName}`,
+        cancelLabel: "Close",
+        isForm: false,
+        onSubmit: null,
+        content: `
+            <div id="credit-logs-timeline-container" class="py-2">
+                <div class="flex flex-col items-center justify-center py-12 text-center">
+                    <div class="w-10 h-10 rounded-full bg-slate-50 text-indigo-500 flex items-center justify-center animate-spin mb-4">
+                        <i class="fas fa-circle-notch text-xl animate-spin"></i>
+                    </div>
+                    <span class="text-xs text-slate-500 font-medium font-sans">Fetching historical ledger...</span>
+                </div>
+            </div>
+        `
+    });
+
+    const container = document.getElementById("credit-logs-timeline-container");
+    if (container) {
+        try {
+            const logs = await listByCompany("activityLogs", companyId, "createdAt");
+            const creditLogs = logs.filter((log) => log.type === "ai_credit_adjustment");
+            if (creditLogs.length === 0) {
+                container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-8 text-center animate-fade-in">
+                        <div class="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center text-xl mb-4">
+                            <i class="fas fa-history"></i>
+                        </div>
+                        <h4 class="text-sm font-bold text-slate-800">No Adjustment History</h4>
+                        <p class="text-xs text-slate-500 max-w-xs mt-1">This company workspace hasn't had any manual AI credit adjustments yet.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="relative border-l-2 border-slate-100 pl-6 ml-3 space-y-6 animate-fade-in">
+                    ${creditLogs
+                        .map((log) => {
+                            let badgeColor = "bg-indigo-50 text-indigo-700 border-indigo-100";
+                            let actionLabel = "Set to";
+                            let icon = "fa-equals";
+                            if (log.action === "add") {
+                                badgeColor = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                                actionLabel = "Added";
+                                icon = "fa-plus";
+                            } else if (log.action === "deduct") {
+                                badgeColor = "bg-rose-50 text-rose-700 border-rose-100";
+                                actionLabel = "Deducted";
+                                icon = "fa-minus";
+                            }
+
+                            return `
+                            <div class="relative group">
+                                <div class="absolute -left-[35px] top-1 w-6 h-6 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-[9px] text-slate-500 transition-colors group-hover:border-indigo-400 group-hover:text-indigo-600">
+                                    <i class="fas ${icon}"></i>
+                                </div>
+                                
+                                <div>
+                                    <div class="flex items-center justify-between gap-4">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${badgeColor}">
+                                                ${actionLabel} ${Number(log.amount || 0).toLocaleString("en-IN")}
+                                            </span>
+                                        </div>
+                                        <span class="text-[10px] text-slate-400 font-medium">${formatDateTime(log.createdAt)}</span>
+                                    </div>
+                                    <div class="mt-1.5 text-xs font-bold text-slate-800 leading-relaxed">
+                                        ${escapeHtml(log.reason || "AI credit modification")}
+                                    </div>
+                                    <div class="mt-1 flex items-center gap-1.5 text-[10px] text-slate-500 font-medium">
+                                        <i class="fas fa-user-shield text-[8px]"></i>
+                                        <span>Admin: ${escapeHtml(log.performedBy || "unknown")}</span>
+                                        <span class="text-slate-300">•</span>
+                                        <span>Balance: ${Number(log.previousBalance || 0).toLocaleString("en-IN")} → ${Number(log.newBalance || 0).toLocaleString("en-IN")}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        })
+                        .join("")}
+                </div>
+            `;
+        } catch (error) {
+            container.innerHTML = `
+                <div class="p-4 rounded-xl bg-red-50 text-red-700 text-xs border border-red-100 flex items-center gap-2">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    <span>Failed to load adjustment history: ${escapeHtml(error.message)}</span>
+                </div>
+            `;
         }
     }
 }

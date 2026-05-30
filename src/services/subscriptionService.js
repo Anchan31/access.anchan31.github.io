@@ -41,7 +41,9 @@ export async function createSubscription(input) {
         cancelAtPeriodEnd: false,
         lastPaymentStatus: input.lastPaymentStatus || "not_started",
         manuallyConfirmedBy: input.manuallyConfirmedBy || "",
-        manuallyConfirmedAt: input.manuallyConfirmedAt || null
+        manuallyConfirmedAt: input.manuallyConfirmedAt || null,
+        aiCreditsIncluded: Number(input.aiCreditsIncluded || 0),
+        aiCreditsRemaining: Number(input.aiCreditsIncluded || 0)
     });
 }
 
