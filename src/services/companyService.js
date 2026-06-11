@@ -24,8 +24,8 @@ export async function createCompanyWorkspace(subscription, input) {
             modulesEnabled: {
                 hire: true,
                 learn: false,
-                core: false,
-                perform: false,
+                core: true,
+                perform: true,
                 ai: false
             },
             customLimits: subscription.customLimits || {}

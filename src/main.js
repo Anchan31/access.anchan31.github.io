@@ -1941,10 +1941,6 @@ function showCompanyModal() {
                 <input id="companySubdomain" required placeholder="e.g. udaan-talent" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
             </div>
             <div class="grid gap-1.5">
-                <label for="ownerId" class="text-sm font-bold text-slate-700">Firebase Auth UID</label>
-                <input id="ownerId" required placeholder="UID for the customer login you created" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
-            </div>
-            <div class="grid gap-1.5">
                 <label for="ownerName" class="text-sm font-bold text-slate-700">Owner Name</label>
                 <input id="ownerName" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
             </div>
@@ -1966,16 +1962,49 @@ function showCompanyModal() {
                 toast("Enter a valid client ID / subdomain.", true);
                 return;
             }
-            await createCompanyWorkspace(subscription, {
+
+            const ownerEmail = document.getElementById("ownerEmail").value.trim();
+            const ownerName = document.getElementById("ownerName").value.trim();
+            const tempPassword = "WorkCosmo@2026!";
+
+            let firebaseUser;
+            try {
+                toast("Creating secure login credentials...", false);
+                const authCredential = await createUserWithEmailAndPassword(secondaryAuth, ownerEmail, tempPassword);
+                firebaseUser = authCredential.user;
+            } catch (authError) {
+                if (authError.code === "auth/email-already-in-use") {
+                    const uid = prompt(
+                        "An authentication account with this email already exists.\nIf you want to link to their existing account, enter their Firebase UID below (or click Cancel):"
+                    );
+                    if (!uid) {
+                        toast("Provisioning cancelled.", true);
+                        return;
+                    }
+                    firebaseUser = { uid, email: ownerEmail };
+                } else {
+                    console.error("Auth Creation Error:", authError);
+                    toast("Failed to create Auth user: " + authError.message, true);
+                    return;
+                }
+            }
+
+            const companyId = await createCompanyWorkspace(subscription, {
                 companyId: companySubdomain,
                 companyName: document.getElementById("companyName").value.trim(),
-                ownerId: document.getElementById("ownerId").value.trim(),
-                ownerName: document.getElementById("ownerName").value.trim(),
-                ownerEmail: document.getElementById("ownerEmail").value.trim()
+                ownerId: firebaseUser.uid,
+                ownerName: ownerName,
+                ownerEmail: ownerEmail
             });
+
             await loadData();
             renderShell();
-            toast("Company workspace provisioned.");
+
+            const credentialsText = `Space URL: https://space.workcosmo.in\nClient ID: ${companySubdomain}\nHire URL: https://hire.workcosmo.in/${companySubdomain}\nAdmin Email: ${ownerEmail}\nDefault Password: ${tempPassword}`;
+            navigator.clipboard?.writeText(credentialsText);
+            alert(
+                `🎉 Workspace Provisioned Successfully!\n\nCredentials have been COPIED to your clipboard:\n\n${credentialsText}\n\nYou can now paste this directly into an email to your client.`
+            );
             close();
         }
     });
@@ -2011,10 +2040,6 @@ function showUserModal() {
                 <input id="inviteName" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
             </div>
             <div class="grid gap-1.5">
-                <label for="inviteUid" class="text-sm font-bold text-slate-700">Firebase Auth UID</label>
-                <input id="inviteUid" required placeholder="UID for the login you created" class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
-            </div>
-            <div class="grid gap-1.5">
                 <label for="inviteEmail" class="text-sm font-bold text-slate-700">Email</label>
                 <input id="inviteEmail" type="email" required class="w-full min-h-[42px] px-3 py-2 bg-white border border-slate-200 rounded-xl text-slate-900 outline-none focus:border-pink-500 focus:ring-4 focus:ring-pink-500/10 transition-all">
             </div>
@@ -2037,18 +2062,50 @@ function showUserModal() {
                 return;
             }
 
+            const inviteEmail = document.getElementById("inviteEmail").value.trim();
+            const inviteName = document.getElementById("inviteName").value.trim();
+            const inviteRole = document.getElementById("inviteRole").value;
+            const tempPassword = "WorkCosmo@2026!";
+
+            let firebaseUser;
+            try {
+                toast("Creating secure login credentials...", false);
+                const authCredential = await createUserWithEmailAndPassword(secondaryAuth, inviteEmail, tempPassword);
+                firebaseUser = authCredential.user;
+            } catch (authError) {
+                if (authError.code === "auth/email-already-in-use") {
+                    const uid = prompt(
+                        "An authentication account with this email already exists.\nIf you want to link to their existing account, enter their Firebase UID below (or click Cancel):"
+                    );
+                    if (!uid) {
+                        toast("Provisioning cancelled.", true);
+                        return;
+                    }
+                    firebaseUser = { uid, email: inviteEmail };
+                } else {
+                    console.error("Auth Creation Error:", authError);
+                    toast("Failed to create Auth user: " + authError.message, true);
+                    return;
+                }
+            }
+
             await inviteUser({
                 company,
                 subscription,
                 activeUserCount,
-                userId: document.getElementById("inviteUid").value.trim(),
-                name: document.getElementById("inviteName").value.trim(),
-                email: document.getElementById("inviteEmail").value.trim(),
-                role: document.getElementById("inviteRole").value
+                userId: firebaseUser.uid,
+                name: inviteName,
+                email: inviteEmail,
+                role: inviteRole
             });
             await loadData();
             renderShell();
-            toast("Customer login profile created.");
+
+            const credentialsText = `Space URL: https://space.workcosmo.in\nClient ID: ${company.id}\nEmail: ${inviteEmail}\nDefault Password: ${tempPassword}`;
+            navigator.clipboard?.writeText(credentialsText);
+            alert(
+                `🎉 Login Profile Created Successfully!\n\nCredentials have been COPIED to your clipboard:\n\n${credentialsText}\n\nYou can now share this directly with the user.`
+            );
             close();
         }
     });
